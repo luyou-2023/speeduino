@@ -434,7 +434,37 @@ void loop(void)
         BIT_SET(ADCSRA,ADIE); //Enable ADC interrupt
       #endif
     }
-    
+
+    /**
+    在一个周期性任务中执行的，用于每隔一段时间读取油门踏板位置传感器（TPS）的数据并进行其他控制逻辑操作
+    解析：
+    BIT_CHECK(LOOP_TIMER, BIT_TIMER_15HZ)
+
+    这行代码检查 LOOP_TIMER 中的 BIT_TIMER_15HZ 位是否被设置。这是一个周期性检查，目的是每 32 次循环执行一次。这通常用于控制任务的频率，确保一定时间间隔后再执行相应操作。
+    BIT_CHECK 是一个宏，用于检查特定位的状态。假设 BIT_TIMER_15HZ 是一个计时器标志位。
+    BIT_CLEAR(TIMER_mask, BIT_TIMER_15HZ)
+
+    如果上面的条件成立（即每经过 32 次循环），则会清除 BIT_TIMER_15HZ 位，准备下一轮的定时器检查。
+    #if TPS_READ_FREQUENCY == 15
+
+    这部分的条件编译语句检查是否设置了 TPS_READ_FREQUENCY 为 15。如果是，则执行 readTPS() 函数。readTPS() 函数用于读取油门踏板传感器的值（TPS），通常会对传感器数据进行滤波和校准。
+    #if defined(CORE_TEENSY35)
+
+    如果在编译时定义了 CORE_TEENSY35（表示使用 Teensy 35 微控制器），则执行与该硬件相关的代码。
+    if (configPage9.enable_intcan == 1)
+
+    检查 configPage9.enable_intcan 是否为 1，表示启用内部 CAN 模块。如果启用了内部 CAN，后续的代码会执行相关的 CAN 通信操作（目前是注释掉的 sendCancommand()，这是一个测试接口的命令）。
+    checkLaunchAndFlatShift();
+
+    调用 checkLaunchAndFlatShift() 函数检查是否启用了启动控制和超车换挡（Flat Shift）功能。这两个功能通常用于性能提升，在发动机控制系统中非常常见：
+    启动控制（Launch Control）：控制发动机在起步时的转速，以避免车轮打滑。
+    超车换挡（Flat Shift）：在加速时，平稳换挡以避免丢失动力。
+    注释部分：
+
+    注释部分表示会检查齿轮信号的日志缓冲区是否准备好。齿轮信号通常用于同步发动机控制和变速器之间的操作。
+    总结：
+    这段代码的主要作用是在周期性任务中读取油门踏板位置（TPS），执行一些与硬件相关的操作（如内部CAN通讯测试），并检查是否启用启动控制和超车换挡功能。代码使用了定时器标志位（如 BIT_TIMER_15HZ）来确保在每 32 次循环后执行这些操作，从而避免频率过高导致系统不稳定。
+    **/
     if (BIT_CHECK(LOOP_TIMER, BIT_TIMER_15HZ)) //Every 32 loops
     {
       BIT_CLEAR(TIMER_mask, BIT_TIMER_15HZ);
@@ -500,6 +530,9 @@ void loop(void)
       if (configPage2.canBMWCluster == true) { sendBMWCluster(); }
       if (configPage2.canVAGCluster == true) { sendVAGCluster(); }
       #endif
+      /**
+      按频率读取油门数据
+      **/
       #if TPS_READ_FREQUENCY == 30
         readTPS();
       #endif

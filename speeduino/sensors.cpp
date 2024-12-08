@@ -467,6 +467,95 @@ void readMAP(void)
   }
 }
 
+/**
+在这段代码中，readTPS() 函数用于读取油门踏板传感器（TPS，Throttle Position Sensor）的数据，并将其转换为油门开度百分比（TPS%）。TPS传感器监测油门踏板的位置，并将其转化为相应的电压信号供控制单元使用。
+
+代码解析
+功能：
+该函数读取油门踏板传感器的模拟输入，并通过ADC转换获取一个数值。
+通过滤波器（如果启用）对传感器的原始数据进行平滑。
+对油门传感器的原始值进行校准，并将其转换为油门开度的百分比（TPS%）。
+如果配置了闭油门位置传感器（CTPS），则判断其是否处于活动状态。
+关键部分解析：
+读取原始传感器数据：
+
+cpp
+复制代码
+#if defined(ANALOG_ISR)
+  byte tempTPS = fastMap1023toX(AnChannel[pinTPS-A0], 255);
+#else
+  analogRead(pinTPS);
+  byte tempTPS = fastMap1023toX(analogRead(pinTPS), 255);
+#endif
+analogRead(pinTPS) 读取与油门踏板传感器连接的模拟引脚的值。
+fastMap1023toX() 函数将 ADC 数值（0-1023）映射到 0-255 的范围。
+滤波器处理：
+
+cpp
+复制代码
+if(useFilter == true) { currentStatus.tpsADC = ADC_FILTER(tempTPS, configPage4.ADCFILTER_TPS, currentStatus.tpsADC); }
+else { currentStatus.tpsADC = tempTPS; }
+如果启用滤波器（useFilter == true），则通过 ADC_FILTER() 函数对原始值进行平滑，以减少噪声。
+如果不使用滤波器，则直接使用原始的传感器值。
+校准并限制 TPS 值范围：
+
+cpp
+复制代码
+if(configPage2.tpsMax > configPage2.tpsMin)
+{
+  if (currentStatus.tpsADC < configPage2.tpsMin) { tempADC = configPage2.tpsMin; }
+  else if(currentStatus.tpsADC > configPage2.tpsMax) { tempADC = configPage2.tpsMax; }
+  currentStatus.TPS = map(tempADC, configPage2.tpsMin, configPage2.tpsMax, 0, 200);
+}
+else
+{
+  tempADC = 255 - currentStatus.tpsADC;
+  uint16_t tempTPSMax = 255 - configPage2.tpsMax;
+  uint16_t tempTPSMin = 255 - configPage2.tpsMin;
+  if (tempADC > tempTPSMax) { tempADC = tempTPSMax; }
+  else if(tempADC < tempTPSMin) { tempADC = tempTPSMin; }
+  currentStatus.TPS = map(tempADC, tempTPSMin, tempTPSMax, 0, 200);
+}
+首先检查 tpsMax 是否大于 tpsMin。如果是，说明传感器的输出范围是正常的。然后对 TPS ADC 值进行限制，确保它在 tpsMin 和 tpsMax 范围内。
+map() 函数将校准后的 TPS 值转换为 0-200 范围的百分比。
+如果 tpsMax 和 tpsMin 的配置值被反转（例如接线错误），则通过倒置传感器读取值来进行处理，确保值在正确的范围内。
+检查闭油门位置传感器（CTPS）：
+
+cpp
+复制代码
+if(configPage2.CTPSEnabled == true)
+{
+  if(configPage2.CTPSPolarity == 0) { currentStatus.CTPSActive = !digitalRead(pinCTPS); }
+  else { currentStatus.CTPSActive = digitalRead(pinCTPS); }
+}
+else { currentStatus.CTPSActive = 0; }
+如果启用了闭油门位置传感器（CTPS），则根据配置的极性（CTPSPolarity）检查传感器的状态。
+如果极性为 0，表示闭油门传感器是通过接地来激活的（低电平表示闭合）；如果极性为 1，表示通过 5V 来激活传感器。
+总结：
+readTPS() 函数读取油门踏板传感器的原始数据，并将其转换为相应的百分比值（TPS%）。
+数据会通过一个可选的滤波器进行平滑，以减少噪声。
+函数还会根据配置的最小和最大值对 TPS 数据进行校准，并根据需要检查闭油门位置传感器的状态。
+此函数用于在发动机控制系统中获取油门踏板位置，以便进行燃油喷射和点火时机的调整。
+
+节气门位置传感器（TPS, Throttle Position Sensor）的值是通过检测节气门开度的变化产生的，这个过程涉及机械和电子组件的协同工作。以下是TPS值产生的一般过程：
+
+机械连接：
+TPS通常安装在节气门体上，并与节气门轴机械相连。当驾驶员踩下油门踏板时，它通过机械连杆或拉线直接或间接地转动节气门轴，从而改变进入发动机的空气量。
+电位计原理：
+TPS内部包含一个可变电阻（电位计），其电阻随着节气门轴的旋转而变化。这种变化被转换为电压信号输出。简单来说，当节气门关闭时，电位计提供一个较低的电压；当节气门全开时，它提供一个较高的电压。
+电压信号：
+传感器输出的电压信号通常是相对于5V参考电压的比例值。例如，在怠速状态下（节气门几乎关闭），传感器可能会输出0.5V左右的电压；而在节气门完全打开时，可能会上升到接近5V。
+模数转换（ADC）：
+车辆的ECU（电子控制单元）通过内置的模拟-数字转换器（ADC）将来自TPS的模拟电压信号转换为数字值。这一步骤对于现代汽车非常重要，因为ECU需要处理的是数字信息而不是模拟信号。
+数据处理：
+ECU接收到ADC转换后的数字信号后，会根据预设的校准参数对这些数值进行进一步处理。例如，它会将电压范围映射到代表节气门开度的百分比（如0%到100%），并考虑任何必要的修正或滤波以提高读数的准确性。
+反馈与控制：
+最终，ECU使用处理后的TPS值来调整燃油喷射、点火时刻等关键参数，确保发动机按照驾驶者的需求平稳且高效地运行。此外，TPS还用于其他系统，比如巡航控制、自动变速器换挡逻辑等。
+异常检测：
+ECU还会监测TPS信号是否存在异常情况，比如信号丢失或超出预期范围，以便及时采取措施保护发动机或者提示驾驶员检查车辆。
+
+油门踏板 ->
+**/
 void readTPS(bool useFilter)
 {
   currentStatus.TPSlast = currentStatus.TPS;
