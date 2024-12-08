@@ -212,6 +212,20 @@ void can_Command(void)
     // or the 0x7df(2015 dec) broadcast address
     if (inMsg.buf[1] == 0x01)
     {
+      /**
+      与油门控制的关系
+      通过 PID 模式请求 TPS 数据：
+
+      在 PID 模式 0x01 中，可以请求节气门位置传感器数据（TPS），用于监测油门踏板的输入。
+      例如，inMsg.buf[2] 中的值为某个特定的 PID（如 0x11 表示 TPS），obd_response 函数会返回对应的 TPS 数据。
+      数据流向：
+
+      通过 CAN 总线收到 OBD 请求（例如请求 TPS 数据）。
+      can_Command 解析请求，并调用 obd_response 生成响应。
+      响应数据通过 CAN 总线返回到请求设备（如诊断工具或仪表盘）。
+
+      **/
+      //请求实时数据流，例如 RPM、TPS（节气门位置传感器）、车速等。
       // PID mode 0 , realtime data stream
       obd_response(inMsg.buf[1], inMsg.buf[2], 0);     // get the obd response based on the data in byte2
       outMsg.id = (0x7E8);       //((configPage9.obd_address + 0x100)+ 8);  
