@@ -120,6 +120,52 @@ static inline uint32_t calculateIgnitionTimeout(const IgnitionSchedule &schedule
  * @param schedule 点火调度对象，用于记录当前点火计划的状态和参数
  * @param endAngle 目标结束角度，用于计算角度差
  * @param crankAngle 当前的曲轴角度
+
+ SET_COMPARE(schedule.compare, schedule.startCompare); 和 adjustCrankAngle 方法中涉及的 SET_COMPARE(schedule.compare, schedule.counter + uS_TO_TIMER_COMPARE(...)) 都是通过设置定时器的比较值来控制事件的触发，但它们在代码中执行的时机和目的有所不同。
+
+ 让我们深入分析这两者之间的关系。
+
+ 1. SET_COMPARE(schedule.compare, schedule.startCompare);
+ 这是一个直接设置定时器比较值的操作。它通常出现在主循环（loop）中，用来启动或更新定时器的比较单元，以便触发某个事件，如点火或其他调度控制。schedule.startCompare 是比较值，表示定时器应该在这个时间点触发某个动作。
+
+ schedule.compare：定时器的比较单元。
+
+ schedule.startCompare：设定的比较值，通常是某个未来的时间点，触发定时器事件。
+
+ 2. adjustCrankAngle 方法中的 SET_COMPARE
+ adjustCrankAngle 方法在点火调度或其他时间相关操作时，根据曲轴角度差计算并设置新的比较值。其目的是根据曲轴的角度来精确调整定时器的比较时间。
+
+ schedule.counter 是当前计时器的值，表示从程序开始运行到当前的时间点。
+
+ uS_TO_TIMER_COMPARE 是一个宏或函数，用来将微秒级的时间转换为定时器的比较值。
+
+ angleToTimeMicroSecPerDegree 用来将角度转换为时间（微秒），ignitionLimits 用来调整点火的限制，最终得到一个新的时间值。
+
+ adjustCrankAngle 会根据当前的曲轴角度差（endAngle - crankAngle）来计算一个新的比较时间点，并设置定时器的比较值。这通常是在点火控制或其他周期性任务的调度中，动态调整点火时机或其他控制逻辑。
+
+ 两者之间的关系
+ 主循环中的 SET_COMPARE 和 adjustCrankAngle 中的 SET_COMPARE 都是更新定时器的比较值：
+
+ SET_COMPARE(schedule.compare, schedule.startCompare); 通常是主循环的一部分，用来确保定时器在指定的时间点触发某个事件。
+
+ adjustCrankAngle 通过计算与曲轴角度相关的时间差，动态更新比较值（schedule.compare），并使用新的时间点来控制定时器的触发。它计算出的比较值可能会传递给 SET_COMPARE，以调整时机。
+
+ adjustCrankAngle 的作用是动态调整比较值：
+
+ adjustCrankAngle 中的 SET_COMPARE 用来设置基于当前曲轴角度和预定点火时机计算的新的比较值。它比 loop 中的 SET_COMPARE 更精细，因为它会根据实时的曲轴状态来调整定时器的触发时机。
+
+ loop 中的 SET_COMPARE 和 adjustCrankAngle 的结合：
+
+ 在主循环（loop）中，SET_COMPARE(schedule.compare, schedule.startCompare); 被调用来触发预定的定时任务。
+
+ adjustCrankAngle 会在需要时计算出新的定时器比较值（比如在点火控制中），然后通过 SET_COMPARE 更新定时器。这意味着 loop 中的 SET_COMPARE 可能会定期更新定时器，而 adjustCrankAngle 会在点火时机变化时动态调整定时器的比较值。
+
+ 总结
+ SET_COMPARE(schedule.compare, schedule.startCompare); 是主循环中设置定时器比较值的操作，用来控制定时器的触发。
+
+ adjustCrankAngle 是一个计算曲轴角度差，并基于此计算定时器触发时机的函数。它会动态计算新的定时器比较值，并设置定时器。
+
+ 它们之间的关系是：adjustCrankAngle 用来根据曲轴的角度和配置动态调整定时器的触发时机，而 SET_COMPARE(schedule.compare, schedule.startCompare); 是定时器触发事件的实际执行操作。adjustCrankAngle 计算出的比较值可以直接传递给 SET_COMPARE 进行实际触发。
  */
 inline void adjustCrankAngle(IgnitionSchedule &schedule, int endAngle, int crankAngle) {
     if (schedule.Status == RUNNING) {  // 如果当前点火调度的状态为运行中
