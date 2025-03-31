@@ -1632,57 +1632,96 @@ uint16_t PW(int REQ_FUEL, byte VE, long MAP, uint16_t corrections, int injOpen)
   return (unsigned int)(intermediate);
 }
 
-/** Lookup the current VE value from the primary 3D fuel map.
- * The Y axis value used for this lookup varies based on the fuel algorithm selected (speed density, alpha-n etc).
- * 
- * @return byte The current VE value
+/**
+ * @brief  从 3D 燃油喷射表（fuelTable）中查找当前 VE（容积效率）值
+ *
+ * @details  ECU 计算燃油喷射量时需要确定发动机的 VE 值，该值由燃油算法决定。
+ *  本函数根据所选燃油控制算法计算 `fuelLoad`，然后在 RPM 和 `fuelLoad`
+ *  组成的二维表（fuelTable）中查找 VE 值并返回。
+ *
+ * @return byte 当前的 VE 值（范围通常在 0~255 之间）
+ VE 查找表示例（RPM vs MAP / TPS）
+ MAP / TPS (%)	500 RPM	1000 RPM	1500 RPM	2000 RPM	2500 RPM	3000 RPM	3500 RPM	4000 RPM
+ 10%	20	25	30	35	38	40	42	44
+ 20%	30	35	40	45	48	50	52	54
+ 30%	40	45	50	55	58	60	62	64
+ 40%	50	55	60	65	68	70	72	74
+ 50%	60	65	70	75	78	80	82	84
+ 60%	70	75	80	85	88	90	92	94
+ 70%	80	85	90	95	98	100	102	104
+ 80%	90	95	100	105	108	110	112	114
+ 90%	100	105	110	115	118	120	122	124
+ 100%	110	115	120	125	128	130	132	134
+ 📌 表结构说明：
+
+ X 轴（列） → 发动机转速（RPM）
+
+ Y 轴（行） → 负载（进气歧管压力 MAP 或节气门开度 TPS）
+
+ 表格数值 → VE 值（0255 范围，通常 0100%）
  */
 byte getVE1(void)
 {
-  byte tempVE = 100;
-  if (configPage2.fuelAlgorithm == LOAD_SOURCE_MAP) //Check which fuelling algorithm is being used
+  byte tempVE = 100;  // 默认 VE 值，避免异常情况时出现错误
+
+  // 根据不同燃油计算算法，确定当前的发动机负载值（fuelLoad）
+  if (configPage2.fuelAlgorithm == LOAD_SOURCE_MAP)
   {
-    //Speed Density
+    // 速度密度（Speed Density）算法
+    // 使用进气歧管压力（MAP）作为燃油负载依据
     currentStatus.fuelLoad = currentStatus.MAP;
   }
   else if (configPage2.fuelAlgorithm == LOAD_SOURCE_TPS)
   {
-    //Alpha-N
-    currentStatus.fuelLoad = currentStatus.TPS * 2;
+    // Alpha-N（节气门开度）算法
+    // 适用于独立节气门系统（ITB），使用节气门开度（TPS）作为负载
+    currentStatus.fuelLoad = currentStatus.TPS * 2;  // 可能是 ECU 设计中的一个缩放因子
   }
   else if (configPage2.fuelAlgorithm == LOAD_SOURCE_IMAPEMAP)
   {
-    //IMAP / EMAP
+    // IMAP / EMAP 算法（适用于增压引擎）
+    // 计算公式：fuelLoad = (MAP * 100) / EMAP
+    // 这里 EMAP 可能是排气压力，避免因背压过大导致燃烧室充气效率下降
     currentStatus.fuelLoad = ((int16_t)currentStatus.MAP * 100U) / currentStatus.EMAP;
   }
-  else { currentStatus.fuelLoad = currentStatus.MAP; } //Fallback position
-  tempVE = get3DTableValue(&fuelTable, currentStatus.fuelLoad, currentStatus.RPM); //Perform lookup into fuel map for RPM vs MAP value
+  else
+  {
+    // 兜底情况（Fallback）：如果燃油算法无效，默认使用 MAP 作为 fuelLoad
+    currentStatus.fuelLoad = currentStatus.MAP;
+  }
 
-  return tempVE;
+  // 查询 3D 燃油映射表（fuelTable），获取 RPM 和 fuelLoad 对应的 VE 值
+  tempVE = get3DTableValue(&fuelTable, currentStatus.fuelLoad, currentStatus.RPM);
+
+  return tempVE;  // 返回查找到的 VE 值
 }
 
-/** Lookup the ignition advance from 3D ignition table.
- * The values used to look this up will be RPM and whatever load source the user has configured.
- * 
- * @return byte The current target advance value in degrees
+/**
+ * 从 3D 点火提前角表中查找当前的点火提前角（单位：度）
+ * 查表时使用的两个输入值分别是：发动机转速（RPM）和负载（Load Source）
+ *
+ * @return byte  返回当前目标点火提前角（单位：度）
  */
 byte getAdvance1(void)
 {
-  byte tempAdvance = 0;
+  byte tempAdvance = 0; // 存储最终的点火提前角
   if (configPage2.ignAlgorithm == LOAD_SOURCE_MAP) //Check which fuelling algorithm is being used
   {
     //Speed Density
+     // **速度密度（Speed Density）：使用歧管绝对压力（MAP）**
     currentStatus.ignLoad = currentStatus.MAP;
   }
   else if(configPage2.ignAlgorithm == LOAD_SOURCE_TPS)
   {
     //Alpha-N
+     // **Alpha-N 方法：基于节气门开度（TPS）**
     currentStatus.ignLoad = currentStatus.TPS * 2;
 
   }
   else if (configPage2.fuelAlgorithm == LOAD_SOURCE_IMAPEMAP)
   {
     //IMAP / EMAP
+     // **IMAP / EMAP 方法（进气歧管压力 vs 排气歧管压力）**
     currentStatus.ignLoad = ((int16_t)currentStatus.MAP * 100U) / currentStatus.EMAP;
   }
   tempAdvance = get3DTableValue(&ignitionTable, currentStatus.ignLoad, currentStatus.RPM) - OFFSET_IGNITION; //As above, but for ignition advance
