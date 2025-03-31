@@ -47,6 +47,31 @@ Can be either data for a new command or a continuation of data for command that 
 - chunkPending = Specifically for the new receive value method where TS will send a known number of contiguous bytes to be written to a table
 
 Commands are single byte (letter symbol) commands.
+注释分析
+串口缓冲区的处理：
+
+这段代码的作用是处理串口缓冲区中接收到的数据。根据命令的类型，决定是启动一个新的命令的处理，还是继续处理一个已经开始的命令。
+
+命令的类型：
+
+命令是单字节的（通常是一个字母符号），它们可以是控制指令，表示某个操作的启动、停止或状态查询等。
+
+cmdPending：
+
+cmdPending 是一个标志，表示当前是否有命令已启动，但还在等待后续的数据，以完成命令的执行。通常，这种情况会在需要多次数据输入才能完成一个命令的情境下出现。例如，一个命令需要接收多个连续的字节来完成数据处理。
+
+chunkPending：
+
+chunkPending 专门用于处理一种情况：发送的数据是已知大小的连续字节序列，这些字节需要被写入到表格或缓冲区中。该标志表示数据正在以“块”的形式被处理，这些数据块会被用来执行某些操作。
+
+基本操作流程：
+命令格式：每个命令都是一个单字节字符，代表一个操作指令。
+
+例如，字母 'H' 可能代表启动日志记录，字母 'h' 代表停止日志记录。
+
+命令开始：当接收到一个命令字节时，会判断是否为新的命令，还是正在等待的命令的继续数据。如果是新的命令，则可能需要继续接收更多数据。
+
+命令处理：命令处理可以根据命令的类型进行分类和执行，例如处理单个命令或处理多个字节的数据。
 */
 void legacySerialCommand(void)
 {
