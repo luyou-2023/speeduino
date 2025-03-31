@@ -1116,171 +1116,196 @@ void boostDisable(void)
   BOOST_PIN_LOW(); //Make sure solenoid is off (0% duty)
 }
 
-//The interrupt to control the Boost PWM
+// 控制 Boost PWM 的中断
 #if defined(CORE_AVR)
-  ISR(TIMER1_COMPA_vect) //cppcheck-suppress misra-c2012-8.2
+  ISR(TIMER1_COMPA_vect) // AVR 系统上的定时器中断服务程序
 #else
-  void boostInterrupt(void) //Most ARM chips can simply call a function
+  void boostInterrupt(void) // 对于大多数 ARM 芯片，直接调用一个函数
 #endif
 {
+  // 如果 Boost PWM 处于启用状态
   if (boost_pwm_state == true)
   {
-    #if defined(CORE_TEENSY41) //PIT TIMERS count down and have opposite effect on PWM
-    BOOST_PIN_HIGH();
+    #if defined(CORE_TEENSY41) // 对于 Teensy41，这些定时器倒计时，PWM 的效果相反
+    BOOST_PIN_HIGH();  // 将引脚设置为高电平
     #else
-    BOOST_PIN_LOW();  // Switch pin to low
+    BOOST_PIN_LOW();  // 否则，将引脚设置为低电平
     #endif
-    SET_COMPARE(BOOST_TIMER_COMPARE, BOOST_TIMER_COUNTER + (boost_pwm_max_count - boost_pwm_cur_value) );
-    boost_pwm_state = false;
+    // 更新定时器比较值，为下一次 PWM 切换做好准备
+    SET_COMPARE(BOOST_TIMER_COMPARE, BOOST_TIMER_COUNTER + (boost_pwm_max_count - boost_pwm_cur_value));
+    boost_pwm_state = false; // 设置状态为禁用
   }
   else
   {
-    #if defined(CORE_TEENSY41) //PIT TIMERS count down and have opposite effect on PWM
-    BOOST_PIN_LOW();
+    #if defined(CORE_TEENSY41) // 对于 Teensy41，PWM 信号需要反向
+    BOOST_PIN_LOW();  // 将引脚设置为低电平
     #else
-    BOOST_PIN_HIGH();  // Switch pin high
+    BOOST_PIN_HIGH();  // 否则，将引脚设置为高电平
     #endif
+    // 设置定时器比较值，触发下一次 PWM 输出
     SET_COMPARE(BOOST_TIMER_COMPARE, BOOST_TIMER_COUNTER + boost_pwm_target_value);
-    boost_pwm_cur_value = boost_pwm_target_value;
-    boost_pwm_state = true;
+    boost_pwm_cur_value = boost_pwm_target_value;  // 更新当前 PWM 值
+    boost_pwm_state = true;  // 设置状态为启用
   }
 }
 
-//The interrupt to control the VVT PWM
+// 控制 VVT PWM 的中断
 #if defined(CORE_AVR)
-  ISR(TIMER1_COMPB_vect) //cppcheck-suppress misra-c2012-8.2
+  ISR(TIMER1_COMPB_vect) // AVR 系统上的定时器中断服务程序
 #else
-  void vvtInterrupt(void) //Most ARM chips can simply call a function
+  void vvtInterrupt(void) // 对于 ARM 系统，直接调用一个函数
 #endif
 {
+  // 如果 VVT1 和 VVT2 的 PWM 信号都处于禁用状态或达到最大值
   if ( ((vvt1_pwm_state == false) || (vvt1_max_pwm == true)) && ((vvt2_pwm_state == false) || (vvt2_max_pwm == true)) )
   {
-    if( (vvt1_pwm_value > 0) && (vvt1_max_pwm == false) ) //Don't toggle if at 0%
+    // 如果 VVT1 的 PWM 值大于 0 且没有达到最大值
+    if( (vvt1_pwm_value > 0) && (vvt1_max_pwm == false) )
     {
       #if defined(CORE_TEENSY41)
-      VVT1_PIN_OFF();
+      VVT1_PIN_OFF(); // 关闭 VVT1 引脚
       #else
-      VVT1_PIN_ON();
+      VVT1_PIN_ON();  // 否则，打开 VVT1 引脚
       #endif
-      vvt1_pwm_state = true;
+      vvt1_pwm_state = true; // 设置 VVT1 PWM 状态为启用
     }
-    if( (vvt2_pwm_value > 0) && (vvt2_max_pwm == false) ) //Don't toggle if at 0%
+    // 如果 VVT2 的 PWM 值大于 0 且没有达到最大值
+    if( (vvt2_pwm_value > 0) && (vvt2_max_pwm == false) )
     {
       #if defined(CORE_TEENSY41)
-      VVT2_PIN_OFF();
+      VVT2_PIN_OFF(); // 关闭 VVT2 引脚
       #else
-      VVT2_PIN_ON();
+      VVT2_PIN_ON();  // 否则，打开 VVT2 引脚
       #endif
-      vvt2_pwm_state = true;
+      vvt2_pwm_state = true; // 设置 VVT2 PWM 状态为启用
     }
 
+    // 如果 VVT1 PWM 已启用并且 VVT1 的 PWM 值小于或等于 VVT2 的 PWM 值，或 VVT2 的 PWM 处于禁用状态
     if( (vvt1_pwm_state == true) && ((vvt1_pwm_value <= vvt2_pwm_value) || (vvt2_pwm_state == false)) )
     {
+      // 设置定时器比较值，以触发 VVT1 PWM 输出
       SET_COMPARE(VVT_TIMER_COMPARE, VVT_TIMER_COUNTER + vvt1_pwm_value);
-      vvt1_pwm_cur_value = vvt1_pwm_value;
-      vvt2_pwm_cur_value = vvt2_pwm_value;
-      if (vvt1_pwm_value == vvt2_pwm_value) { nextVVT = 2; } //Next event is for both PWM
-      else { nextVVT = 0; } //Next event is for PWM0
+      vvt1_pwm_cur_value = vvt1_pwm_value;  // 更新 VVT1 当前 PWM 值
+      vvt2_pwm_cur_value = vvt2_pwm_value;  // 更新 VVT2 当前 PWM 值
+      if (vvt1_pwm_value == vvt2_pwm_value) { nextVVT = 2; } // 如果 VVT1 和 VVT2 的 PWM 值相同，下一事件为两者
+      else { nextVVT = 0; } // 否则，下一事件为 VVT1
     }
     else if( vvt2_pwm_state == true )
     {
+      // 如果 VVT2 PWM 已启用，设置定时器比较值，以触发 VVT2 PWM 输出
       SET_COMPARE(VVT_TIMER_COMPARE, VVT_TIMER_COUNTER + vvt2_pwm_value);
-      vvt1_pwm_cur_value = vvt1_pwm_value;
-      vvt2_pwm_cur_value = vvt2_pwm_value;
-      nextVVT = 1; //Next event is for PWM1
+      vvt1_pwm_cur_value = vvt1_pwm_value;  // 更新 VVT1 当前 PWM 值
+      vvt2_pwm_cur_value = vvt2_pwm_value;  // 更新 VVT2 当前 PWM 值
+      nextVVT = 1; // 下一事件为 VVT2
     }
-    else { SET_COMPARE(VVT_TIMER_COMPARE, VVT_TIMER_COUNTER + vvt_pwm_max_count); } //Shouldn't ever get here
+    else { SET_COMPARE(VVT_TIMER_COMPARE, VVT_TIMER_COUNTER + vvt_pwm_max_count); } // 如果都未满足条件，设置最大计数
   }
   else
   {
+    // 处理 VVT1 和 VVT2 的 PWM 切换
     if(nextVVT == 0)
     {
-      if(vvt1_pwm_value < (long)vvt_pwm_max_count) //Don't toggle if at 100%
+      // 如果 VVT1 的 PWM 值小于最大值
+      if(vvt1_pwm_value < (long)vvt_pwm_max_count)
       {
         #if defined(CORE_TEENSY41)
-        VVT1_PIN_ON();
+        VVT1_PIN_ON(); // 打开 VVT1 引脚
         #else
-        VVT1_PIN_OFF();
+        VVT1_PIN_OFF(); // 否则，关闭 VVT1 引脚
         #endif
-        vvt1_pwm_state = false;
-        vvt1_max_pwm = false;
+        vvt1_pwm_state = false; // 设置 VVT1 状态为禁用
+        vvt1_max_pwm = false; // 设置 VVT1 最大 PWM 为 false
       }
-      else { vvt1_max_pwm = true; }
-      nextVVT = 1; //Next event is for PWM1
+      else { vvt1_max_pwm = true; } // 如果 VVT1 PWM 已达到最大值，设置为最大 PWM
+      nextVVT = 1; // 下一事件为 VVT2
+
+      // 如果 VVT2 PWM 已启用，更新定时器比较值
       if(vvt2_pwm_state == true){ SET_COMPARE(VVT_TIMER_COMPARE, VVT_TIMER_COUNTER + (vvt2_pwm_cur_value - vvt1_pwm_cur_value) ); }
       else
-      { 
+      {
+        // 否则，设置定时器比较值为最大 PWM 值
         SET_COMPARE(VVT_TIMER_COMPARE, VVT_TIMER_COUNTER + (vvt_pwm_max_count - vvt1_pwm_cur_value) );
-        nextVVT = 2; //Next event is for both PWM
+        nextVVT = 2; // 下一事件为 VVT1 和 VVT2
       }
     }
     else if (nextVVT == 1)
     {
-      if(vvt2_pwm_value < (long)vvt_pwm_max_count) //Don't toggle if at 100%
+      // 如果 VVT2 的 PWM 值小于最大值
+      if(vvt2_pwm_value < (long)vvt_pwm_max_count)
       {
         #if defined(CORE_TEENSY41)
-        VVT2_PIN_ON();
+        VVT2_PIN_ON(); // 打开 VVT2 引脚
         #else
-        VVT2_PIN_OFF();
+        VVT2_PIN_OFF(); // 否则，关闭 VVT2 引脚
         #endif
-        vvt2_pwm_state = false;
-        vvt2_max_pwm = false;
+        vvt2_pwm_state = false; // 设置 VVT2 状态为禁用
+        vvt2_max_pwm = false; // 设置 VVT2 最大 PWM 为 false
       }
-      else { vvt2_max_pwm = true; }
-      nextVVT = 0; //Next event is for PWM0
+      else { vvt2_max_pwm = true; } // 如果 VVT2 PWM 已达到最大值，设置为最大 PWM
+      nextVVT = 0; // 下一事件为 VVT1
+
+      // 如果 VVT1 PWM 已启用，更新定时器比较值
       if(vvt1_pwm_state == true) { SET_COMPARE(VVT_TIMER_COMPARE, VVT_TIMER_COUNTER + (vvt1_pwm_cur_value - vvt2_pwm_cur_value) ); }
       else
-      { 
+      {
+        // 否则，设置定时器比较值为最大 PWM 值
         SET_COMPARE(VVT_TIMER_COMPARE, VVT_TIMER_COUNTER + (vvt_pwm_max_count - vvt2_pwm_cur_value) );
-        nextVVT = 2; //Next event is for both PWM
+        nextVVT = 2; // 下一事件为 VVT1 和 VVT2
       }
     }
     else
     {
-      if(vvt1_pwm_value < (long)vvt_pwm_max_count) //Don't toggle if at 100%
-      {
-       #if defined(CORE_TEENSY41)
-        VVT1_PIN_ON();
-        #else
-        VVT1_PIN_OFF();
-        #endif
-        vvt1_pwm_state = false;
-        vvt1_max_pwm = false;
-        SET_COMPARE(VVT_TIMER_COMPARE, VVT_TIMER_COUNTER + (vvt_pwm_max_count - vvt1_pwm_cur_value) );
-      }
-      else { vvt1_max_pwm = true; }
-      if(vvt2_pwm_value < (long)vvt_pwm_max_count) //Don't toggle if at 100%
+      // 如果 VVT1 PWM 小于最大值，更新定时器比较值
+      if(vvt1_pwm_value < (long)vvt_pwm_max_count)
       {
         #if defined(CORE_TEENSY41)
-        VVT2_PIN_ON();
+        VVT1_PIN_ON(); // 打开 VVT1 引脚
         #else
-        VVT2_PIN_OFF();
+        VVT1_PIN_OFF(); // 否则，关闭 VVT1 引脚
         #endif
-        vvt2_pwm_state = false;
-        vvt2_max_pwm = false;
+        vvt1_pwm_state = false; // 设置 VVT1 状态为禁用
+        vvt1_max_pwm = false; // 设置 VVT1 最大 PWM 为 false
+        SET_COMPARE(VVT_TIMER_COMPARE, VVT_TIMER_COUNTER + (vvt_pwm_max_count - vvt1_pwm_cur_value) );
+      }
+      else { vvt1_max_pwm = true; } // 如果 VVT1 PWM 达到最大值，设置为最大 PWM
+
+      // 如果 VVT2 PWM 小于最大值，更新定时器比较值
+      if(vvt2_pwm_value < (long)vvt_pwm_max_count)
+      {
+        #if defined(CORE_TEENSY41)
+        VVT2_PIN_ON(); // 打开 VVT2 引脚
+        #else
+        VVT2_PIN_OFF(); // 否则，关闭 VVT2 引脚
+        #endif
+        vvt2_pwm_state = false; // 设置 VVT2 状态为禁用
+        vvt2_max_pwm = false; // 设置 VVT2 最大 PWM 为 false
         SET_COMPARE(VVT_TIMER_COMPARE, VVT_TIMER_COUNTER + (vvt_pwm_max_count - vvt2_pwm_cur_value) );
       }
-      else { vvt2_max_pwm = true; }
+      else { vvt2_max_pwm = true; } // 如果 VVT2 PWM 达到最大值，设置为最大 PWM
     }
   }
 }
 
-#if defined(PWM_FAN_AVAILABLE)
-//The interrupt to control the FAN PWM. Mega2560 doesn't have enough timers, so this is only for the ARM chip ones
-  void fanInterrupt(void)
+// FAN PWM 中断
+#if defined(CORE_AVR)
+  ISR(TIMER1_COMPC_vect) // AVR 系统上的定时器中断服务程序
+#else
+  void fanInterrupt(void) // 对于 ARM 系统，直接调用一个函数
+#endif
 {
+  // 如果 FAN PWM 信号启用并且符合条件
   if (fan_pwm_state == true)
   {
-    FAN_OFF();
-    FAN_TIMER_COMPARE = FAN_TIMER_COUNTER + (fan_pwm_max_count - fan_pwm_cur_value);
-    fan_pwm_state = false;
+    FAN_PIN_HIGH();  // 打开 FAN 引脚
+    // 更新定时器比较值，触发 FAN PWM 输出
+    SET_COMPARE(FAN_TIMER_COMPARE, FAN_TIMER_COUNTER + fan_pwm_cur_value);
+    fan_pwm_state = false;  // 设置 FAN PWM 状态为禁用
   }
   else
   {
-    FAN_ON();
-    FAN_TIMER_COMPARE = FAN_TIMER_COUNTER + fan_pwm_value;
-    fan_pwm_cur_value = fan_pwm_value;
-    fan_pwm_state = true;
+    FAN_PIN_LOW();  // 关闭 FAN 引脚
+    // 设置定时器比较值，触发下一次 FAN PWM 输出
+    SET_COMPARE(FAN_TIMER_COMPARE, FAN_TIMER_COUNTER + fan_pwm_target_value);
+    fan_pwm_state = true;  // 设置 FAN PWM 状态为启用
   }
 }
-#endif

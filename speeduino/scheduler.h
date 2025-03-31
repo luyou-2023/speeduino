@@ -150,12 +150,19 @@ struct IgnitionSchedule {
 void _setIgnitionScheduleRunning(IgnitionSchedule &schedule, unsigned long timeout, unsigned long duration);
 void _setIgnitionScheduleNext(IgnitionSchedule &schedule, unsigned long timeout, unsigned long duration);
 
+// 设置点火调度
 inline __attribute__((always_inline)) void setIgnitionSchedule(IgnitionSchedule &schedule, unsigned long timeout, unsigned long duration) {
-  if(schedule.Status != RUNNING) { //Check that we're not already part way through a schedule
+
+  // 检查当前调度状态是否为 "RUNNING"，即是否已经有一个调度在进行
+  if(schedule.Status != RUNNING) {
+    // 如果没有正在进行的调度，则启动新的调度
+    // 调用 _setIgnitionScheduleRunning 函数来设置调度为 "运行" 状态
     _setIgnitionScheduleRunning(schedule, timeout, duration);
   }
-  // Check whether timeout exceeds the maximum future time. This can potentially occur on sequential setups when below ~115rpm
-  else if(timeout < MAX_TIMER_PERIOD){
+  // 如果当前调度状态为 "RUNNING"，但超时时间小于最大定时器周期
+  // 这通常发生在转速较低时，确保调度不会超出最大定时器的限制
+  else if(timeout < MAX_TIMER_PERIOD) {
+    // 调用 _setIgnitionScheduleNext 函数来设置下一个调度
     _setIgnitionScheduleNext(schedule, timeout, duration);
   }
 }

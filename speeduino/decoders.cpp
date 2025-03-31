@@ -1051,84 +1051,170 @@ void triggerSetEndTeeth_DualWheel(void)
 * @defgroup dec_dist Basic Distributor
 * @{
 */
+/**
+ * @brief 配置基本分电器触发器（Basic Distributor）
+ *
+ * 该函数用于设置基本分电器触发器。基本分电器的齿数与气缸数相等，齿轮均匀分布在凸轮轴上。
+ * 由于没有位置传感器（仍保留分电器），因此曲轴角度是基于检测到的第一组齿来计算的。
+ *
+ * 参考文档: http://www.megamanual.com/ms2/GM_7pinHEI.htm
+ *
+ * @defgroup dec_dist Basic Distributor
+ * @{
+ */
 void triggerSetup_BasicDistributor(void)
 {
-  triggerActualTeeth = configPage2.nCylinders;
-  if(triggerActualTeeth == 0) { triggerActualTeeth = 1; }
+    // 设定实际齿数，等于气缸数
+    triggerActualTeeth = configPage2.nCylinders;
 
-  //The number of degrees that passes from tooth to tooth. Depends on number of cylinders and whether 4 or 2 stroke
-  if(configPage2.strokes == FOUR_STROKE) { triggerToothAngle = 720U / triggerActualTeeth; }
-  else { triggerToothAngle = 360U / triggerActualTeeth; }
+    // 防止气缸数为 0，至少保证有 1 个齿
+    if(triggerActualTeeth == 0) {
+        triggerActualTeeth = 1;
+    }
 
-  triggerFilterTime = MICROS_PER_MIN / MAX_RPM / configPage2.nCylinders; // Minimum time required between teeth
-  triggerFilterTime = triggerFilterTime / 2; //Safety margin
-  triggerFilterTime = 0;
-  BIT_CLEAR(decoderState, BIT_DECODER_2ND_DERIV);
-  BIT_CLEAR(decoderState, BIT_DECODER_IS_SEQUENTIAL);
-  BIT_CLEAR(decoderState, BIT_DECODER_HAS_SECONDARY);
-  toothCurrentCount = 0; //Default value
-  BIT_SET(decoderState, BIT_DECODER_HAS_FIXED_CRANKING);
-  BIT_SET(decoderState, BIT_DECODER_TOOTH_ANG_CORRECT);
-  if(configPage2.nCylinders <= 4U) { MAX_STALL_TIME = ((MICROS_PER_DEG_1_RPM/90U) * triggerToothAngle); }//Minimum 90rpm. (1851uS is the time per degree at 90rpm). This uses 90rpm rather than 50rpm due to the potentially very high stall time on a 4 cylinder if we wait that long.
-  else { MAX_STALL_TIME = ((MICROS_PER_DEG_1_RPM/50U) * triggerToothAngle); } //Minimum 50rpm. (3200uS is the time per degree at 50rpm).
+    // 计算齿与齿之间的角度：
+    // - 对于四冲程 (FOUR_STROKE)，一整圈为 720°，所以每个齿的角度 = 720° / 齿数
+    // - 对于二冲程 (TWO_STROKE)，一整圈为 360°，所以每个齿的角度 = 360° / 齿数
+    if(configPage2.strokes == FOUR_STROKE) {
+        triggerToothAngle = 720U / triggerActualTeeth;
+    } else {
+        triggerToothAngle = 360U / triggerActualTeeth;
+    }
 
+    // 计算最小齿间时间：
+    // MICROS_PER_MIN = 每分钟的微秒数 (60 * 1000000)
+    // MAX_RPM = 最高转速
+    // 气缸数决定触发频率
+    triggerFilterTime = MICROS_PER_MIN / MAX_RPM / configPage2.nCylinders;
+
+    // 添加安全裕度，减小一半时间，确保稳定性
+    triggerFilterTime = triggerFilterTime / 2;
+
+    // 强制设置 triggerFilterTime 为 0（可能用于测试或调试）
+    triggerFilterTime = 0;
+
+    // 清除解码器状态位，确保默认状态：
+    BIT_CLEAR(decoderState, BIT_DECODER_2ND_DERIV);    // 清除二阶导数位，表示不使用高级触发算法
+    BIT_CLEAR(decoderState, BIT_DECODER_IS_SEQUENTIAL); // 清除顺序触发标志
+    BIT_CLEAR(decoderState, BIT_DECODER_HAS_SECONDARY); // 清除次级触发标志（无次级触发信号）
+
+    // 设定当前齿数计数为 0（初始值）
+    toothCurrentCount = 0;
+
+    // 设定解码器状态：
+    BIT_SET(decoderState, BIT_DECODER_HAS_FIXED_CRANKING); // 设定固定起动模式
+    BIT_SET(decoderState, BIT_DECODER_TOOTH_ANG_CORRECT);  // 设定齿角校正标志
+
+    // 计算最大停止时间 (MAX_STALL_TIME)：
+    // 如果气缸数 ≤ 4：
+    if(configPage2.nCylinders <= 4U) {
+        // 90 RPM (转/分钟) 时，每 1° 需要 1851 微秒 (uS)
+        // 计算公式: MAX_STALL_TIME = (1851 * 每个齿的角度)
+        MAX_STALL_TIME = ((MICROS_PER_DEG_1_RPM / 90U) * triggerToothAngle);
+    }
+    else {
+        // 50 RPM (转/分钟) 时，每 1° 需要 3200 微秒 (uS)
+        // 计算公式: MAX_STALL_TIME = (3200 * 每个齿的角度)
+        MAX_STALL_TIME = ((MICROS_PER_DEG_1_RPM / 50U) * triggerToothAngle);
+    }
 }
 
+/**
+ * @brief 处理基本分电器的主要触发信号
+ *
+ * 该函数在检测到触发信号时执行，用于计算齿间时间、同步引擎状态、
+ * 更新点火角度，并检查同步丢失情况。
+ */
 void triggerPri_BasicDistributor(void)
 {
-  curTime = micros();
-  curGap = curTime - toothLastToothTime;
-  if ( (curGap >= triggerFilterTime) )
-  {
-    if(currentStatus.hasSync == true) { setFilter(curGap); } //Recalc the new filter value
-    else { triggerFilterTime = 0; } //If we don't yet have sync, ensure that the filter won't prevent future valid pulses from being ignored. 
-    
-    if( (toothCurrentCount == triggerActualTeeth) || (currentStatus.hasSync == false) ) //Check if we're back to the beginning of a revolution
+    // 记录当前时间（微秒）
+    curTime = micros();
+
+    // 计算当前齿间时间间隔
+    curGap = curTime - toothLastToothTime;
+
+    // 过滤触发信号，确保齿间时间 >= 触发时间滤波值
+    if (curGap >= triggerFilterTime)
     {
-      toothCurrentCount = 1; //Reset the counter
-      toothOneMinusOneTime = toothOneTime;
-      toothOneTime = curTime;
-      currentStatus.hasSync = true;
-      currentStatus.startRevolutions++; //Counter
-    }
-    else
-    {
-      if( (toothCurrentCount < triggerActualTeeth) ) { toothCurrentCount++; } //Increment the tooth counter
-      else
-      {
-        //This means toothCurrentCount is greater than triggerActualTeeth, which is bad.
-        //If we have sync here then there's a problem. Throw a sync loss
-        if( currentStatus.hasSync == true ) 
-        { 
-          currentStatus.syncLossCounter++;
-          currentStatus.hasSync = false;
+        // 如果已同步 (hasSync = true)，则更新触发时间滤波值
+        if (currentStatus.hasSync == true) {
+            setFilter(curGap);
         }
-      }
-      
-    }
+        else {
+            // 若尚未同步，则关闭滤波功能，以防止忽略有效触发信号
+            triggerFilterTime = 0;
+        }
 
-    BIT_SET(decoderState, BIT_DECODER_VALID_TRIGGER); //Flag this pulse as being a valid trigger (ie that it passed filters)
+        // 检查是否回到了第一齿（判断是否重新开始一轮转动）
+        if ( (toothCurrentCount == triggerActualTeeth) || (currentStatus.hasSync == false) )
+        {
+            // 重新计数，从第一齿开始
+            toothCurrentCount = 1;
 
-    if ( configPage4.ignCranklock && BIT_CHECK(currentStatus.engine, BIT_ENGINE_CRANK) )
-    {
-      endCoil1Charge();
-      endCoil2Charge();
-      endCoil3Charge();
-      endCoil4Charge();
-    }
+            // 记录上一次第一齿的时间
+            toothOneMinusOneTime = toothOneTime;
+            toothOneTime = curTime;
 
-    if(configPage2.perToothIgn == true)
-    {
-      int16_t crankAngle = ( (toothCurrentCount-1) * triggerToothAngle ) + configPage4.triggerAngle;
-      crankAngle = ignitionLimits((crankAngle));
-      if(toothCurrentCount > (triggerActualTeeth/2) ) { checkPerToothTiming(crankAngle, (toothCurrentCount - (triggerActualTeeth/2))); }
-      else { checkPerToothTiming(crankAngle, toothCurrentCount); }
-    }
+            // 设定同步状态
+            currentStatus.hasSync = true;
 
-    toothLastMinusOneToothTime = toothLastToothTime;
-    toothLastToothTime = curTime;
-  } //Trigger filter
+            // 记录同步的转数计数
+            currentStatus.startRevolutions++;
+        }
+        else
+        {
+            // 正常情况下，齿计数递增
+            if (toothCurrentCount < triggerActualTeeth) {
+                toothCurrentCount++;
+            }
+            else
+            {
+                // 说明齿计数超出了应有的范围，可能发生了同步丢失
+                if (currentStatus.hasSync == true)
+                {
+                    currentStatus.syncLossCounter++;  // 记录同步丢失次数
+                    currentStatus.hasSync = false;    // 标记为未同步状态
+                }
+            }
+        }
+
+        // 标记该触发信号为有效信号
+        BIT_SET(decoderState, BIT_DECODER_VALID_TRIGGER);
+
+        // 如果发动机在启动阶段，且启用了点火锁定 (ignCranklock)，则终止所有点火充电
+        if (configPage4.ignCranklock && BIT_CHECK(currentStatus.engine, BIT_ENGINE_CRANK))
+        {
+            endCoil1Charge();
+            endCoil2Charge();
+            endCoil3Charge();
+            endCoil4Charge();
+        }
+
+        // 如果启用了 per-tooth 点火模式，则计算曲轴角度并调整点火时机
+        if (configPage2.perToothIgn == true)
+        {
+            // 计算当前曲轴角度:
+            // (当前齿数 - 1) * 每齿角度 + 触发基准角
+            int16_t crankAngle = ( (toothCurrentCount - 1) * triggerToothAngle ) + configPage4.triggerAngle;
+
+            // 限制点火角度范围
+            crankAngle = ignitionLimits(crankAngle);
+
+            // 计算并调整每齿点火时机
+            if (toothCurrentCount > (triggerActualTeeth / 2)) {
+                checkPerToothTiming(crankAngle, (toothCurrentCount - (triggerActualTeeth / 2)));
+            }
+            else {
+                checkPerToothTiming(crankAngle, toothCurrentCount);
+            }
+        }
+
+        // 更新上一齿的时间记录
+        toothLastMinusOneToothTime = toothLastToothTime;
+        toothLastToothTime = curTime;
+    } // 触发信号过滤结束
 }
+
 void triggerSec_BasicDistributor(void) { return; } //Not required
 uint16_t getRPM_BasicDistributor(void)
 {
@@ -1176,79 +1262,92 @@ int getCrankAngle_BasicDistributor(void)
     return crankAngle;
 }
 
+/**
+ * @brief 设置点火终止齿位 (Ignition End Teeth)
+ *
+ * 该函数根据发动机气缸数 (`nCylinders`) 和点火终止角度 (`ignition1EndAngle`)
+ * 计算并设置每个点火事件的终止齿位置。
+ */
 void triggerSetEndTeeth_BasicDistributor(void)
 {
+    // 计算点火终止角度相对于触发角度的相对值
+    int tempEndAngle = (ignition1EndAngle - configPage4.triggerAngle);
 
-  int tempEndAngle = (ignition1EndAngle - configPage4.triggerAngle);
-  tempEndAngle = ignitionLimits((tempEndAngle));
+    // 限制角度范围 (通常在 0° ~ 360° 之间)
+    tempEndAngle = ignitionLimits(tempEndAngle);
 
-  switch(configPage2.nCylinders)
-  {
-    case 4:
-      if( (tempEndAngle > 180) || (tempEndAngle <= 0) )
-      {
-        ignition1EndTooth = 2;
-        ignition2EndTooth = 1;
-      }
-      else
-      {
-        ignition1EndTooth = 1;
-        ignition2EndTooth = 2;
-      }
-      break;
-    case 3: //Shared with 6 cylinder
-    case 6:
-      if( (tempEndAngle > 120) && (tempEndAngle <= 240) )
-      {
-        ignition1EndTooth = 2;
-        ignition2EndTooth = 3;
-        ignition3EndTooth = 1;
-      }
-      else if( (tempEndAngle > 240) || (tempEndAngle <= 0) )
-      {
-        ignition1EndTooth = 3;
-        ignition2EndTooth = 1;
-        ignition3EndTooth = 2;
-      }
-      else
-      {
-        ignition1EndTooth = 1;
-        ignition2EndTooth = 2;
-        ignition3EndTooth = 3;
-      }
-      break;
-    case 8:
-      if( (tempEndAngle > 90) && (tempEndAngle <= 180) )
-      {
-        ignition1EndTooth = 2;
-        ignition2EndTooth = 3;
-        ignition3EndTooth = 4;
-        ignition4EndTooth = 1;
-      }
-      else if( (tempEndAngle > 180) && (tempEndAngle <= 270) )
-      {
-        ignition1EndTooth = 3;
-        ignition2EndTooth = 4;
-        ignition3EndTooth = 1;
-        ignition4EndTooth = 2;
-      }
-      else if( (tempEndAngle > 270) || (tempEndAngle <= 0) )
-      {
-        ignition1EndTooth = 4;
-        ignition2EndTooth = 1;
-        ignition3EndTooth = 2;
-        ignition4EndTooth = 3;
-      }
-      else
-      {
-        ignition1EndTooth = 1;
-        ignition2EndTooth = 2;
-        ignition3EndTooth = 3;
-        ignition4EndTooth = 4;
-      }
-      break;
-  }
+    // 根据发动机的气缸数进行不同的处理
+    switch (configPage2.nCylinders)
+    {
+        case 4: // 四缸发动机
+            // tempEndAngle 落在 (0,180] 还是 (180,360] 范围，决定点火顺序
+            if ((tempEndAngle > 180) || (tempEndAngle <= 0))
+            {
+                ignition1EndTooth = 2;
+                ignition2EndTooth = 1;
+            }
+            else
+            {
+                ignition1EndTooth = 1;
+                ignition2EndTooth = 2;
+            }
+            break;
+
+        case 3: // 三缸发动机 (与 6 缸共用逻辑)
+        case 6: // 六缸发动机
+            if ((tempEndAngle > 120) && (tempEndAngle <= 240))
+            {
+                ignition1EndTooth = 2;
+                ignition2EndTooth = 3;
+                ignition3EndTooth = 1;
+            }
+            else if ((tempEndAngle > 240) || (tempEndAngle <= 0))
+            {
+                ignition1EndTooth = 3;
+                ignition2EndTooth = 1;
+                ignition3EndTooth = 2;
+            }
+            else
+            {
+                ignition1EndTooth = 1;
+                ignition2EndTooth = 2;
+                ignition3EndTooth = 3;
+            }
+            break;
+
+        case 8: // 八缸发动机
+            if ((tempEndAngle > 90) && (tempEndAngle <= 180))
+            {
+                ignition1EndTooth = 2;
+                ignition2EndTooth = 3;
+                ignition3EndTooth = 4;
+                ignition4EndTooth = 1;
+            }
+            else if ((tempEndAngle > 180) && (tempEndAngle <= 270))
+            {
+                ignition1EndTooth = 3;
+                ignition2EndTooth = 4;
+                ignition3EndTooth = 1;
+                ignition4EndTooth = 2;
+            }
+            else if ((tempEndAngle > 270) || (tempEndAngle <= 0))
+            {
+                ignition1EndTooth = 4;
+                ignition2EndTooth = 1;
+                ignition3EndTooth = 2;
+                ignition4EndTooth = 3;
+            }
+            else
+            {
+                ignition1EndTooth = 1;
+                ignition2EndTooth = 2;
+                ignition3EndTooth = 3;
+                ignition4EndTooth = 4;
+            }
+            break;
+    }
 }
+
 /** @} */
 
 /** Decode GM 7X trigger wheel with six equally spaced teeth and a seventh tooth for cylinder identification.

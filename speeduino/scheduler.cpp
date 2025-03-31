@@ -238,21 +238,48 @@ void _setFuelScheduleNext(FuelSchedule &schedule, unsigned long timeout, unsigne
   schedule.hasNextSchedule = true;
 }
 
+// 设置点火调度为 "运行" 状态
 void _setIgnitionScheduleRunning(IgnitionSchedule &schedule, unsigned long timeout, unsigned long duration)
 {
+  // 设置调度的持续时间
   schedule.duration = duration;
 
-  //Need to check that the timeout doesn't exceed the overflow
+  // 需要检查超时是否超过溢出限制
   COMPARE_TYPE timeout_timer_compare;
-  if (timeout > MAX_TIMER_PERIOD) { timeout_timer_compare = uS_TO_TIMER_COMPARE( (MAX_TIMER_PERIOD - 1) ); } // If the timeout is >4x (Each tick represents 4uS) the maximum allowed value of unsigned int (65535), the timer compare value will overflow when applied causing erratic behaviour such as erroneous sparking.
-  else { timeout_timer_compare = uS_TO_TIMER_COMPARE(timeout); } //Normal case
 
+  // 如果超时超过最大定时器周期，则调整超时值
+  if (timeout > MAX_TIMER_PERIOD) {
+    // 如果超时超过最大定时器周期（每个时钟周期代表 4 微秒，最大允许值为 65535），
+    // 该值将导致定时器溢出，可能会引发不正常的行为（如错误的点火）。
+    timeout_timer_compare = uS_TO_TIMER_COMPARE((MAX_TIMER_PERIOD - 1)); // 设置为最大允许值
+  }
+  else {
+    // 否则，直接将超时转换为定时器比较值
+    timeout_timer_compare = uS_TO_TIMER_COMPARE(timeout); // 正常情况
+  }
+
+  // 禁止中断，进行时间相关的操作，防止中断引发不必要的冲突
   noInterrupts();
-  schedule.startCompare = schedule.counter + timeout_timer_compare; //As there is a tick every 4uS, there are timeout/4 ticks until the interrupt should be triggered ( >>2 divides by 4)
-  if(schedule.endScheduleSetByDecoder == false) { schedule.endCompare = schedule.startCompare + uS_TO_TIMER_COMPARE(duration); } //The .endCompare value is also set by the per tooth timing in decoders.ino. The check here is so that it's not getting overridden. 
+
+  // 计算调度的开始比较值
+  schedule.startCompare = schedule.counter + timeout_timer_compare;
+  // 因为每个时钟周期代表 4 微秒，超时应该是 timeout/4 个时钟周期后触发
+  // 例如：如果超时为 4 微秒，超时会在 1 个时钟周期后触发（>>2 即除以 4）。
+
+  // 如果未由解码器设置调度结束时间，则根据持续时间来设置结束比较值
+  if(schedule.endScheduleSetByDecoder == false) {
+    schedule.endCompare = schedule.startCompare + uS_TO_TIMER_COMPARE(duration);
+  }
+  // 调用定时器设置函数，设置定时器比较值，触发点火调度
   SET_COMPARE(schedule.compare, schedule.startCompare);
-  schedule.Status = PENDING; //Turn this schedule on
+
+  // 设置调度状态为 "PENDING"，表示调度已启动，等待执行
+  schedule.Status = PENDING;
+
+  // 恢复中断
   interrupts();
+
+  // 启动定时器（此函数可能是启用硬件定时器）
   schedule.pTimerEnable();
 }
 

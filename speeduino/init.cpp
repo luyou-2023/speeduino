@@ -49,83 +49,107 @@
  * - Read CLT and TPS sensors to have cranking pulsewidths computed correctly
  * - Mark Initialisation completed (this flag-marking is used in code to prevent after-init changes)
  */
+ /**
+  * 初始化Speeduino主循环所需的所有组件。
+  * 功能包括：配置表初始化、EEPROM配置加载、硬件初始化、定时器设置、
+  * 传感器校准、引脚映射、喷油点火模式配置等。
+  */
 void initialiseAll(void)
 {   
-    currentStatus.fpPrimed = false;
-    currentStatus.injPrimed = false;
+     // 初始化状态标志
+    currentStatus.fpPrimed = false;    // 燃油泵未完成初始化
+    currentStatus.injPrimed = false;   // 喷油器未完成初始化
 
+    // 配置内置LED引脚为输出并置低
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, LOW);
 
+    // STM32核心特有配置（启用内部CAN总线）
     #if defined(CORE_STM32)
-    configPage9.intcan_available = 1;   // device has internal canbus
-    //STM32 can not currently enabled
+    configPage9.intcan_available = 1;   // 标记设备支持内部CAN
     #endif
+
 
     /*
     ***********************************************************************************************************
     * EEPROM reset
     */
+    /*
+     * EEPROM复位逻辑（通过特定引脚触发）
+     * 当EEPROM_RESET_PIN保持低电平超过500ms时，擦除EEPROM
+     */
     #if defined(EEPROM_RESET_PIN)
-    uint32_t start_time = millis();
-    byte exit_erase_loop = false; 
-    pinMode(EEPROM_RESET_PIN, INPUT_PULLUP);  
+    uint32_t start_time = millis();      // 记录当前时间
+    byte exit_erase_loop = false;
+    pinMode(EEPROM_RESET_PIN, INPUT_PULLUP);  // 配置复位引脚为上拉输入
 
     //only start routine when this pin is low because it is pulled low
+    // 检测引脚状态，若持续低电平触发擦除
     while (digitalRead(EEPROM_RESET_PIN) != HIGH && (millis() - start_time)<1050)
     {
-      //make sure the key is pressed for at least 0.5 second 
-      if ((millis() - start_time)>500) {
+      //make sure the key is pressed for at least 0.5 second
+      if ((millis() - start_time)>500) { // 持续低电平超过500ms
         //if key is pressed afterboot for 0.5 second make led turn off
-        digitalWrite(LED_BUILTIN, HIGH);
+        digitalWrite(LED_BUILTIN, HIGH);  // LED状态变化提示
 
         //see if the user reacts to the led turned off with removing the keypress within 1 second
         while (((millis() - start_time)<1000) && (exit_erase_loop!=true)){
 
-          //if user let go of key within 1 second erase eeprom
+          //if user let go of key within 1 second erase eeprom  用户释放引脚后执行擦除
           if(digitalRead(EEPROM_RESET_PIN) != LOW){
             #if defined(FLASH_AS_EEPROM_h)
               EEPROM.read(0); //needed for SPI eeprom emulation.
-              EEPROM.clear(); 
-            #else 
-              for (int i = 0 ; i < EEPROM.length() ; i++) { EEPROM.write(i, 255);}
+              EEPROM.clear(); // 擦除模拟EEPROM
+            #else
+              for (int i = 0 ; i < EEPROM.length() ; i++) { EEPROM.write(i, 255);} // 物理EEPROM写空
             #endif
             //if erase done exit while loop.
-            exit_erase_loop = true;
+            exit_erase_loop = true; //退出循环
           }
         }
-      } 
+      }
     }
     #endif
   
     // Unit tests should be independent of any stored configuration on the board!
+    // 非单元测试时加载配置并检查更新
 #if !defined(UNIT_TEST)
-    loadConfig();
-    doUpdates(); //Check if any data items need updating (Occurs with firmware updates)
+    loadConfig();  // 从EEPROM加载配置
+    doUpdates(); //Check if any data items need updating (Occurs with firmware updates)  执行固件升级后的数据迁移
 #endif
 
 
     //Always start with a clean slate on the bootloader capabilities level
     //This should be 0 until we hear otherwise from the 16u2
+    // 初始化引导加载器能力标志
     configPage4.bootloaderCaps = 0;
-    
+
+    // 硬件初始化 初始化特定硬件（在board_xxx.ino中实现）
     initBoard(); //This calls the current individual boards init function. See the board_xxx.ino files for these.
-    initialiseTimers();
-    
+    initialiseTimers(); // 配置定时器
+
+  // SD卡和RTC初始化（如果启用）
   #ifdef SD_LOGGING
-    initRTC();
-    initSD();
+    initRTC(); // 初始化实时时钟
+    initSD();  // 初始化SD卡
   #endif
 
+     // 初始化串口通信
     Serial.begin(115200);
+    // 允许旧版通信协议
     BIT_SET(currentStatus.status4, BIT_STATUS4_ALLOW_LEGACY_COMMS); //Flag legacy comms as being allowed on startup
 
+     /*
+     * 配置各校正表结构体，指向存储在EEPROM中的配置数据
+     * 包括：燃油调整、点火提前、电压校正等表格
+     */
+    // 示例：节气门加速补偿表
     //Repoint the 2D table structs to the config pages that were just loaded
-    taeTable.valueSize = SIZE_BYTE; //Set this table to use byte values
-    taeTable.axisSize = SIZE_BYTE; //Set this table to use byte axis bins
-    taeTable.xSize = 4;
-    taeTable.values = configPage4.taeValues;
-    taeTable.axisX = configPage4.taeBins;
+    taeTable.valueSize = SIZE_BYTE; //Set this table to use byte values  // 表值为字节类型
+    taeTable.axisSize = SIZE_BYTE; //Set this table to use byte axis bins  // 轴值为字节类型
+    taeTable.xSize = 4;  // X轴4个元素
+    taeTable.values = configPage4.taeValues; // 值数组指针
+    taeTable.axisX = configPage4.taeBins;  // 轴数组指针
     maeTable.valueSize = SIZE_BYTE; //Set this table to use byte values
     maeTable.axisSize = SIZE_BYTE; //Set this table to use byte axis bins
     maeTable.xSize = 4;
@@ -290,35 +314,43 @@ void initialiseAll(void)
     o2CalibrationTable.axisX = o2Calibration_bins;
     
     //Setup the calibration tables
+    // 加载传感器校准数据（如CLT、IAT、O2等）
     loadCalibration();
 
     
 
     //Set the pin mappings
+    // 设置引脚映射（根据配置选择硬件布局）
     if((configPage2.pinMapping == 255) || (configPage2.pinMapping == 0)) //255 = EEPROM value in a blank AVR; 0 = EEPROM value in new FRAM
     {
       //First time running on this board
-      resetConfigPages();
-      configPage4.triggerTeeth = 4; //Avoiddiv by 0 when start decoders
-      setPinMapping(3); //Force board to v0.4
+      resetConfigPages();  // 首次运行时重置配置
+      configPage4.triggerTeeth = 4; //Avoiddiv by 0 when start decoders  // 强制使用v0.4引脚映射
+      setPinMapping(3); //Force board to v0.4 // 强制使用v0.4引脚映射
     }
-    else { setPinMapping(configPage2.pinMapping); }
+    else {
+       setPinMapping(configPage2.pinMapping); // 应用用户配置的映射
+    }
 
+    // 初始化CAN总线（如果支持）
     #if defined(NATIVE_CAN_AVAILABLE)
       initCAN();
     #endif
 
+     // 初始化次级串口（如果启用）
     //Must come after setPinMapping() as secondary serial can be changed on a per board basis
     #if defined(secondarySerial_AVAILABLE)
       if (configPage9.enable_secondarySerial == 1) { secondarySerial.begin(115200); }
     #endif
 
+    // 关闭所有点火线圈充电，防止意外点火
     //End all coil charges to ensure no stray sparks on startup
     endCoil1Charge();
     endCoil2Charge();
     endCoil3Charge();
     endCoil4Charge();
     endCoil5Charge();
+    // ... 关闭其他线圈（至IGN_CHANNELS数量）
     #if (IGN_CHANNELS >= 6)
     endCoil6Charge();
     #endif
@@ -330,11 +362,13 @@ void initialiseAll(void)
     #endif
 
     //Similar for injectors, make sure they're turned off
+    // 关闭所有喷油器
     closeInjector1();
     closeInjector2();
     closeInjector3();
     closeInjector4();
     closeInjector5();
+    // ... 关闭其他喷油器（至INJ_CHANNELS数量）
     #if (INJ_CHANNELS >= 6)
     closeInjector6();
     #endif
@@ -346,20 +380,24 @@ void initialiseAll(void)
     #endif
     
     //Set the tacho output default state
+    // 初始化转速表输出引脚
     digitalWrite(pinTachOut, HIGH);
+
+    // 初始化调度器、怠速控制、风扇、辅助PWM等
     //Perform all initialisations
-    initialiseSchedulers();
+    initialiseSchedulers(); // 任务调度器
     //initialiseDisplay();
-    initialiseIdle(true);
-    initialiseFan();
-    initialiseAirCon();
-    initialiseAuxPWM();
-    initialiseCorrections();
+    initialiseIdle(true); // 怠速控制
+    initialiseFan();  // 冷却风扇控制
+    initialiseAirCon(); // 空调控制
+    initialiseAuxPWM(); // 辅助PWM输出
+    initialiseCorrections(); // 校正算法
     BIT_CLEAR(currentStatus.engineProtectStatus, PROTECT_IO_ERROR); //Clear the I/O error bit. The bit will be set in initialiseADC() if there is problem in there.
-    initialiseADC();
-    initialiseProgrammableIO();
+    initialiseADC(); // ADC转换初始化
+    initialiseProgrammableIO();  // 可编程IO
 
     //Check whether the flex sensor is enabled and if so, attach an interrupt for it
+    // 配置Flex传感器和VSS的中断（如果启用）
     if(configPage2.flexEnabled > 0)
     {
       attachInterrupt(digitalPinToInterrupt(pinFlex), flexPulse, CHANGE);
@@ -371,10 +409,12 @@ void initialiseAll(void)
       attachInterrupt(digitalPinToInterrupt(pinVSS), vssPulse, RISING);
     }
 
+    // 计算燃油参数
     //Once the configs have been loaded, a number of one time calculations can be completed
-    req_fuel_uS = configPage2.reqFuel * 100; //Convert to uS and an int. This is the only variable to be used in calculations
-    inj_opentime_uS = configPage2.injOpen * 100; //Injector open time. Comes through as ms*10 (Eg 15.5ms = 155).
+    req_fuel_uS = configPage2.reqFuel * 100; //Convert to uS and an int. This is the only variable to be used in calculations // 转换需求燃油量为微秒
+    inj_opentime_uS = configPage2.injOpen * 100; //Injector open time. Comes through as ms*10 (Eg 15.5ms = 155). // 喷油器开启时间
 
+    // 分阶段喷油配置
     if(configPage10.stagingEnabled == true)
     {
     uint32_t totalInjector = configPage10.stagedInjSizePri + configPage10.stagedInjSizeSec;
@@ -400,16 +440,18 @@ void initialiseAll(void)
     //Begin the main crank trigger interrupt pin setup
     //The interrupt numbering is a bit odd - See here for reference: arduino.cc/en/Reference/AttachInterrupt
     //These assignments are based on the Arduino Mega AND VARY BETWEEN BOARDS. Please confirm the board you are using and update accordingly.
-    currentStatus.RPM = 0;
-    currentStatus.hasSync = false;
+    // 初始化触发器设置
+    currentStatus.RPM = 0; // 初始转速为0
+    currentStatus.hasSync = false; // 无同步信号
     BIT_CLEAR(currentStatus.status3, BIT_STATUS3_HALFSYNC);
-    currentStatus.runSecs = 0;
+    currentStatus.runSecs = 0; // 运行时间清零
     currentStatus.secl = 0;
     //currentStatus.seclx10 = 0;
     currentStatus.startRevolutions = 0;
     currentStatus.syncLossCounter = 0;
     currentStatus.flatShiftingHard = false;
     currentStatus.launchingHard = false;
+    // 启动转速阈值
     currentStatus.crankRPM = ((unsigned int)configPage4.crankRPM * 10); //Crank RPM limit (Saves us calculating this over and over again. It's updated once per second in timers.ino)
     currentStatus.fuelPumpOn = false;
     currentStatus.engineProtectStatus = 0;
@@ -424,9 +466,11 @@ void initialiseAll(void)
     toothLastToothTime = 0;
 
     //Lookup the current MAP reading for barometric pressure
+    // 读取初始MAP和大气压力
     instanteneousMAPReading();
     readBaro();
-    
+
+    // 配置触发器中断
     noInterrupts();
     initialiseTriggers();
 
@@ -435,6 +479,7 @@ void initialiseAll(void)
     if( FLEX_USES_RPM2() ) { attachInterrupt(digitalPinToInterrupt(pinFlex), flexPulse, CHANGE); } //Secondary trigger input can safely be used for Flex sensor
 
     //End crank trigger interrupt attachment
+    // 根据气缸数和冲程数调整燃油计算
     if(configPage2.strokes == FOUR_STROKE)
     {
       //Default is 1 squirt per revolution, so we halve the given req-fuel figure (Which would be over 2 revolutions)
@@ -476,8 +521,9 @@ void initialiseAll(void)
     if(configPage2.strokes == FOUR_STROKE) { CRANK_ANGLE_MAX_INJ = 720 / currentStatus.nSquirts; }
     else { CRANK_ANGLE_MAX_INJ = 360 / currentStatus.nSquirts; }
 
+    // 根据喷射模式设置喷油角度和次数
     switch (configPage2.nCylinders) {
-    case 1:
+    case 1: //单缸配置
         channel1IgnDegrees = 0;
         channel1InjDegrees = 0;
         maxIgnOutputs = 1;
@@ -639,7 +685,7 @@ void initialiseAll(void)
           #endif
         }
         break;
-    case 4:
+    case 4: // 四缸配置（示例）
         channel1IgnDegrees = 0;
         channel1InjDegrees = 0;
         maxIgnOutputs = 2; //Default value for 4 cylinder, may be changed below
@@ -980,11 +1026,13 @@ void initialiseAll(void)
     {
       if(configPage2.strokes == FOUR_STROKE) { CRANK_ANGLE_MAX_INJ = (720U / currentStatus.nSquirts); }
     }
-    
+
+    // 配置喷油和点火调度函数（根据模式选择）
     switch(configPage2.injLayout)
     {
     case INJ_PAIRED:
         //Paired injection
+        // 配对喷射，同时操作两个喷油器
         fuelSchedule1.pStartFunction = openInjector1;
         fuelSchedule1.pEndFunction = closeInjector1;
         fuelSchedule2.pStartFunction = openInjector2;
@@ -1000,6 +1048,7 @@ void initialiseAll(void)
         break;
 
     case INJ_SEMISEQUENTIAL:
+        // 顺序喷射，每个喷油器独立控制
         //Semi-Sequential injection. Currently possible with 4, 6 and 8 cylinders. 5 cylinder is a special case
         if( configPage2.nCylinders == 4 )
         {
@@ -1112,10 +1161,12 @@ void initialiseAll(void)
         break;
     }
 
+    // 配置点火调度函数（根据点火模式）
     switch(configPage4.sparkMode)
     {
     case IGN_MODE_WASTED:
         //Wasted Spark (Normal mode)
+        // 浪费火花模式，两个线圈同时点火
         ignitionSchedule1.pStartCallback = beginCoil1Charge;
         ignitionSchedule1.pEndCallback = endCoil1Charge;
         ignitionSchedule2.pStartCallback = beginCoil2Charge;
@@ -1244,6 +1295,7 @@ void initialiseAll(void)
         break;
 
     case IGN_MODE_SEQUENTIAL:
+        // 顺序点火，每个线圈独立控制
         ignitionSchedule1.pStartCallback = beginCoil1Charge;
         ignitionSchedule1.pEndCallback = endCoil1Charge;
         ignitionSchedule2.pStartCallback = beginCoil2Charge;
@@ -1337,23 +1389,28 @@ void initialiseAll(void)
 
     //Begin priming the fuel pump. This is turned off in the low resolution, 1s interrupt in timers.ino
     //First check that the priming time is not 0
+    // 燃油泵初始化（若配置了启动 priming）
     if(configPage2.fpPrime > 0)
     {
-      FUEL_PUMP_ON();
+      FUEL_PUMP_ON(); // 开启燃油泵
       currentStatus.fuelPumpOn = true;
     }
-    else { currentStatus.fpPrimed = true; } //If the user has set 0 for the pump priming, immediately mark the priming as being completed
+    else {
+     currentStatus.fpPrimed = true;   // 无priming则直接标记完成
+    } //If the user has set 0 for the pump priming, immediately mark the priming as being completed
 
     interrupts();
-    readCLT(false); // Need to read coolant temp to make priming pulsewidth work correctly. The false here disables use of the filter
-    readTPS(false); // Need to read tps to detect flood clear state
+     // 读取传感器初始值（用于启动计算）
+    readCLT(false); // 冷却液温度（禁用滤波） // Need to read coolant temp to make priming pulsewidth work correctly. The false here disables use of the filter
+    readTPS(false); // 节气门位置 // Need to read tps to detect flood clear state
 
     /* tacho sweep function. */
     currentStatus.tachoSweepEnabled = (configPage2.useTachoSweep > 0);
     /* SweepMax is stored as a byte, RPM/100. divide by 60 to convert min to sec (net 5/3).  Multiply by ignition pulses per rev.
        tachoSweepIncr is also the number of tach pulses per second */
     tachoSweepIncr = configPage2.tachoSweepMaxRPM * maxIgnOutputs * 5 / 3;
-    
+
+    // 完成初始化，设置标志位并点亮LED
     currentStatus.initialisationComplete = true;
     digitalWrite(LED_BUILTIN, HIGH);
 
@@ -1363,34 +1420,47 @@ void initialiseAll(void)
  * which are originated from tuning SW (e.g. TS) set values and are available in reference/speeduino.ini (See pinLayout, note also that
  * numbering is not contiguous here).
  */
+ /**
+  * 根据板卡ID设置硬件引脚映射
+  * @param boardID 板卡型号标识符，来自配置或上位机设置
+  * 功能：
+  * - 根据板卡型号分配各功能引脚（喷油、点火、传感器等）
+  * - 配置输入/输出模式
+  * - 初始化特定硬件模块（如MC33810驱动芯片）
+  * - 处理用户自定义引脚覆盖配置
+  */
 void setPinMapping(byte boardID)
 {
   //Force set defaults. Will be overwritten below if needed.
+  // 默认设置为直接控制模式（非SPI等扩展控制）
   injectorOutputControl = OUTPUT_CONTROL_DIRECT;
   ignitionOutputControl = OUTPUT_CONTROL_DIRECT;
 
   switch (boardID)
   {
     //Note: Case 0 (Speeduino v0.1) was removed in Nov 2020 to handle default case for blank FRAM modules
-
+    // Speeduino v0.2版扩展板配置
     case 1:
-    #ifndef SMALL_FLASH_MODE //No support for bluepill here anyway
+    #ifndef SMALL_FLASH_MODE //No support for bluepill here anyway // 排除闪存受限平台
       //Pin mappings as per the v0.2 shield
-      pinInjector1 = 8; //Output pin injector 1 is on
-      pinInjector2 = 9; //Output pin injector 2 is on
+      // 喷油器输出引脚
+      pinInjector1 = 8; //Output pin injector 1 is on // 喷油器1
+      pinInjector2 = 9; //Output pin injector 2 is on // 喷油器2
       pinInjector3 = 10; //Output pin injector 3 is on
       pinInjector4 = 11; //Output pin injector 4 is on
       pinInjector5 = 12; //Output pin injector 5 is on
-      pinCoil1 = 28; //Pin for coil 1
-      pinCoil2 = 24; //Pin for coil 2
+      // 点火线圈引脚
+      pinCoil1 = 28; //Pin for coil 1 // 线圈1
+      pinCoil2 = 24; //Pin for coil 2 // 线圈2
       pinCoil3 = 40; //Pin for coil 3
       pinCoil4 = 36; //Pin for coil 4
       pinCoil5 = 34; //Pin for coil 5 PLACEHOLDER value for now
-      pinTrigger = 20; //The CAS pin
-      pinTrigger2 = 21; //The Cam Sensor pin
+      // 传感器输入引脚
+      pinTrigger = 20; //The CAS pin // 曲轴位置传感器(CAS)
+      pinTrigger2 = 21; //The Cam Sensor pin  // 凸轮轴位置传感器
       pinTrigger3 = 3; //The Cam sensor 2 pin
-      pinTPS = A2; //TPS input pin
-      pinMAP = A3; //MAP sensor pin
+      pinTPS = A2; //TPS input pin // 节气门位置传感器(TPS)
+      pinMAP = A3; //MAP sensor pin  // 进气歧管压力传感器(MAP)
       pinIAT = A0; //IAT sensor pin
       pinCLT = A1; //CLS sensor pin
       pinO2 = A8; //O2 Sensor pin
@@ -1401,8 +1471,9 @@ void setPinMapping(byte boardID)
       pinIdle2 = 31; //2 wire idle control
       pinStepperDir = 16; //Direction pin  for DRV8825 driver
       pinStepperStep = 17; //Step pin for DRV8825 driver
-      pinFan = 47; //Pin for the fan output
-      pinFuelPump = 4; //Fuel pump output
+      pinFan = 47; //Pin for the fan output // 冷却风扇控制
+      // 外设控制引脚
+      pinFuelPump = 4; //Fuel pump output // 燃油泵控制
       pinFlex = 2; // Flex sensor (Must be external interrupt enabled)
       pinResetControl = 43; //Reset control output
       break;
@@ -2359,7 +2430,7 @@ void setPinMapping(byte boardID)
       break;
     #endif
 
-    case 55:
+    case 55: //DropBear定制板配置（Teensy核心）
       #if defined(CORE_TEENSY)
       //Pin mappings for the DropBear
       injectorOutputControl = OUTPUT_CONTROL_MC33810;
@@ -2859,7 +2930,7 @@ void setPinMapping(byte boardID)
   }
 
   //Setup any devices that are using selectable pins
-
+   // 根据配置页设置动态覆盖引脚
   if ( (configPage6.launchPin != 0) && (configPage6.launchPin < BOARD_MAX_IO_PINS) ) { pinLaunch = pinTranslate(configPage6.launchPin); }
   if ( (configPage4.ignBypassPin != 0) && (configPage4.ignBypassPin < BOARD_MAX_IO_PINS) ) { pinIgnBypass = pinTranslate(configPage4.ignBypassPin); }
   if ( (configPage2.tachoPin != 0) && (configPage2.tachoPin < BOARD_MAX_IO_PINS) ) { pinTachOut = pinTranslate(configPage2.tachoPin); }
@@ -2910,13 +2981,15 @@ void setPinMapping(byte boardID)
     pinMode(pinResetControl, OUTPUT);
   }
   
-
+  // 类似处理燃油泵、风扇、VVT等引脚...
+  /* 引脚模式初始化 */
+  // 输出引脚配置
   //Finally, set the relevant pin modes for outputs
-  pinMode(pinTachOut, OUTPUT);
+  pinMode(pinTachOut, OUTPUT); // 转速表输出
   pinMode(pinIdle1, OUTPUT);
   pinMode(pinIdle2, OUTPUT);
   pinMode(pinIdleUpOutput, OUTPUT);
-  pinMode(pinFuelPump, OUTPUT);
+  pinMode(pinFuelPump, OUTPUT);  // 燃油泵
   pinMode(pinFan, OUTPUT);
   pinMode(pinStepperDir, OUTPUT);
   pinMode(pinStepperStep, OUTPUT);
@@ -2929,6 +3002,7 @@ void setPinMapping(byte boardID)
   //This is a legacy mode option to revert the MAP reading behaviour to match what was in place prior to the 201905 firmware
   if(configPage2.legacyMAP > 0) { digitalWrite(pinMAP, HIGH); }
 
+  // 点火线圈直接控制模式初始化
   if(ignitionOutputControl == OUTPUT_CONTROL_DIRECT)
   {
     pinMode(pinCoil1, OUTPUT);
@@ -2966,6 +3040,7 @@ void setPinMapping(byte boardID)
     ign8_pin_mask = digitalPinToBitMask(pinCoil8);
   } 
 
+  // 喷油器直接控制模式
   if(injectorOutputControl == OUTPUT_CONTROL_DIRECT)
   {
     pinMode(pinInjector1, OUTPUT);
@@ -3002,7 +3077,8 @@ void setPinMapping(byte boardID)
     inj8_pin_port = portOutputRegister(digitalPinToPort(pinInjector8));
     inj8_pin_mask = digitalPinToBitMask(pinInjector8);
   }
-  
+
+   // MC33810芯片初始化
   if( (ignitionOutputControl == OUTPUT_CONTROL_MC33810) || (injectorOutputControl == OUTPUT_CONTROL_MC33810) )
   {
     initMC33810();
@@ -3021,6 +3097,7 @@ void setPinMapping(byte boardID)
   pump_pin_mask = digitalPinToBitMask(pinFuelPump);
 
   //And for inputs
+  /* 输入引脚配置 */
   #if defined(CORE_STM32)
     #ifdef INPUT_ANALOG
       pinMode(pinMAP, INPUT_ANALOG);
@@ -3234,6 +3311,7 @@ void initialiseTriggers(void)
   pinMode(pinTrigger2, INPUT);
   pinMode(pinTrigger3, INPUT);
 
+  //禁用中断。
   detachInterrupt(triggerInterrupt);
   detachInterrupt(triggerInterrupt2);
   detachInterrupt(triggerInterrupt3);
@@ -3263,6 +3341,7 @@ void initialiseTriggers(void)
       if(configPage10.TrigEdgeThrd == 0) { tertiaryTriggerEdge = RISING; }
       else { tertiaryTriggerEdge = FALLING; }
 
+      //绑定外部中断到 x 号引脚
       attachInterrupt(triggerInterrupt, triggerHandler, primaryTriggerEdge);
 
       if(BIT_CHECK(decoderState, BIT_DECODER_HAS_SECONDARY)) { attachInterrupt(triggerInterrupt2, triggerSecondaryHandler, secondaryTriggerEdge); }
