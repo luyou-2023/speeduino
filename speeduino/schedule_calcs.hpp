@@ -166,6 +166,23 @@ static inline uint32_t calculateIgnitionTimeout(const IgnitionSchedule &schedule
  adjustCrankAngle 是一个计算曲轴角度差，并基于此计算定时器触发时机的函数。它会动态计算新的定时器比较值，并设置定时器。
 
  它们之间的关系是：adjustCrankAngle 用来根据曲轴的角度和配置动态调整定时器的触发时机，而 SET_COMPARE(schedule.compare, schedule.startCompare); 是定时器触发事件的实际执行操作。adjustCrankAngle 计算出的比较值可以直接传递给 SET_COMPARE 进行实际触发。
+ adjustCrankAngle 主要用于 点火正时（Ignition Timing） 的修正，它的核心作用是根据当前的 曲轴角度（Crank Angle） 计算并调整点火的触发时间。
+
+ 在发动机点火系统中，点火正时的调整对于 燃烧效率、动力输出、油耗 以及 排放控制 至关重要。adjustCrankAngle 通过调整定时器的比较值 (SET_COMPARE) 来动态调整点火时机，使其适应不同的发动机工况，例如 发动机转速（RPM）、负载、进气压力（MAP） 等
+ 点火正时修正的原理
+ 点火时机通常用 曲轴角度（Crank Angle, °CA） 来表示，例如：
+
+ 提前点火（Advance Timing）：在活塞到达上止点（TDC）之前点火，通常用于高转速提升效率。
+
+ 延迟点火（Retarded Timing）：在活塞到达上止点之后点火，通常用于降低爆震风险或怠速稳定。
+
+ adjustCrankAngle 主要是计算 理想点火角度 并转换成 实际的定时器触发时间：
+
+ 计算 所需的点火角度偏移量 endAngle - crankAngle。
+
+ 通过 angleToTimeMicroSecPerDegree 将角度转换为时间（微秒）。
+
+ 计算出新的点火触发时间，并用 SET_COMPARE 更新定时器。
  */
 inline void adjustCrankAngle(IgnitionSchedule &schedule, int endAngle, int crankAngle) {
     if (schedule.Status == RUNNING) {  // 如果当前点火调度的状态为运行中
