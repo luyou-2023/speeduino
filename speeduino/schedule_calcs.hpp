@@ -65,12 +65,32 @@ static inline uint32_t calculateInjectorTimeout(const FuelSchedule &schedule, in
   return _calculateInjectorTimeout(schedule, _adjustToInjChannel(openAngle, channelInjDegrees), _adjustToInjChannel(crankAngle, channelInjDegrees));
 }
 
+/**
+ * @brief 计算点火角度
+ *
+ * @param dwellAngle 点火保持角度
+ * @param channelIgnDegrees 当前通道的点火角度
+ * @param advance 点火提前角度（负值表示提前，正值表示延后）
+ * @param pEndAngle 用于存储计算后的结束角度
+ * @param pStartAngle 用于存储计算后的起始角度
+ */
 static inline void calculateIgnitionAngle(const uint16_t dwellAngle, const uint16_t channelIgnDegrees, int8_t advance, int *pEndAngle, int *pStartAngle)
 {
+  // 计算结束角度。如果当前通道点火角度为 0，则使用最大点火角度，减去提前角度。
   *pEndAngle = (int16_t)(channelIgnDegrees==0U ? (uint16_t)CRANK_ANGLE_MAX_IGN : channelIgnDegrees) - (int16_t)advance;
-  if(*pEndAngle > CRANK_ANGLE_MAX_IGN) {*pEndAngle -= CRANK_ANGLE_MAX_IGN;}
+
+  // 如果结束角度超过最大点火角度，则进行角度归一化（减去最大点火角度）
+  if(*pEndAngle > CRANK_ANGLE_MAX_IGN) {
+    *pEndAngle -= CRANK_ANGLE_MAX_IGN;
+  }
+
+  // 计算起始角度。起始角度等于结束角度减去保持角度。
   *pStartAngle = *pEndAngle - dwellAngle;
-  if(*pStartAngle < 0) {*pStartAngle += CRANK_ANGLE_MAX_IGN;}
+
+  // 如果起始角度小于 0，则进行角度归一化（加上最大点火角度）
+  if(*pStartAngle < 0) {
+    *pStartAngle += CRANK_ANGLE_MAX_IGN;
+  }
 }
 
 static inline void calculateIgnitionTrailingRotary(uint16_t dwellAngle, int rotarySplitDegrees, int leadIgnitionAngle, int *pEndAngle, int *pStartAngle)

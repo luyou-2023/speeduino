@@ -1555,56 +1555,57 @@ void loop(void)
 #endif //Unit test guard
 
 /**
- * @brief This function calculates the required pulsewidth time (in us) given the current system state
- * 
- * @param REQ_FUEL The required fuel value in uS, as calculated by TunerStudio
- * @param VE Lookup from the main fuel table. This can either have been MAP or TPS based, depending on the algorithm used
- * @param MAP In KPa, read from the sensor (This is used when performing a multiply of the map only. It is applicable in both Speed density and Alpha-N)
- * @param corrections Sum of Enrichment factors (Cold start, acceleration). This is a multiplication factor (Eg to add 10%, this should be 110)
- * @param injOpen Injector opening time. The time the injector take to open minus the time it takes to close (Both in uS)
- * @return uint16_t The injector pulse width in uS
+ * @brief 该函数根据当前系统状态计算所需的喷油脉宽时间（单位：微秒）
+ *
+ * @param REQ_FUEL 所需的燃油值（微秒），由 TunerStudio 计算得出
+ * @param VE 从主燃油表中查找的值。根据使用的算法，这个值可以是 MAP 或 TPS
+ * @param MAP 以 KPa 为单位，从传感器读取的 MAP 值（此值仅在进行 MAP 乘法时使用，适用于 Speed Density 和 Alpha-N 模式）
+ * @param corrections 增益因子的总和（如冷启动、加速）。这是一个乘法因子（例如，要增加 10%，应设置为 110）
+ * @param injOpen 喷油器开启时间。喷油器开启时间减去关闭时间（单位：微秒）
+ * @return uint16_t 喷油器脉宽（单位：微秒）
  */
 uint16_t PW(int REQ_FUEL, byte VE, long MAP, uint16_t corrections, int injOpen)
 {
-  //Standard float version of the calculation
-  //return (REQ_FUEL * (float)(VE/100.0) * (float)(MAP/100.0) * (float)(TPS/100.0) * (float)(corrections/100.0) + injOpen);
-  //Note: The MAP and TPS portions are currently disabled, we use VE and corrections only
+  // 标准的浮点数版本计算（已被禁用，当前仅使用 VE 和 corrections）
+  // return (REQ_FUEL * (float)(VE/100.0) * (float)(MAP/100.0) * (float)(TPS/100.0) * (float)(corrections/100.0) + injOpen);
   uint16_t iVE;
   uint16_t iMAP = 100;
   uint16_t iAFR = 147;
 
-  //100% float free version, does sacrifice a little bit of accuracy, but not much.
- 
-  //iVE = ((unsigned int)VE << 7) / 100;
+  // 无浮点数版本计算，牺牲了一些精度，但对性能影响不大
+
+  // iVE = ((unsigned int)VE << 7) / 100;
   iVE = div100(((uint16_t)VE << 7U));
 
-  //Check whether either of the multiply MAP modes is turned on
-  //if ( configPage2.multiplyMAP == MULTIPLY_MAP_MODE_100) { iMAP = ((unsigned int)MAP << 7) / 100; }
+  // 检查是否启用了 MAP 乘法模式
+  // if ( configPage2.multiplyMAP == MULTIPLY_MAP_MODE_100) { iMAP = ((unsigned int)MAP << 7) / 100; }
   if ( configPage2.multiplyMAP == MULTIPLY_MAP_MODE_100) { iMAP = div100( ((uint16_t)MAP << 7U) ); }
   else if( configPage2.multiplyMAP == MULTIPLY_MAP_MODE_BARO) { iMAP = ((unsigned int)MAP << 7U) / currentStatus.baro; }
-  
+
+  // 如果启用了 AFR（空气燃油比）相关设置，且是宽带 O2 传感器，且 AFR 暖机时间已过
   if ( (configPage2.includeAFR == true) && (configPage6.egoType == EGO_TYPE_WIDE) && (currentStatus.runSecs > configPage6.ego_sdelay) ) {
-    iAFR = ((unsigned int)currentStatus.O2 << 7U) / currentStatus.afrTarget;  //Include AFR (vs target) if enabled
+    iAFR = ((unsigned int)currentStatus.O2 << 7U) / currentStatus.afrTarget;  // 如果启用，包含 AFR（与目标值比较）
   }
   if ( (configPage2.incorporateAFR == true) && (configPage2.includeAFR == false) ) {
-    iAFR = ((unsigned int)configPage2.stoich << 7U) / currentStatus.afrTarget;  //Incorporate stoich vs target AFR, if enabled.
+    iAFR = ((unsigned int)configPage2.stoich << 7U) / currentStatus.afrTarget;  // 如果启用，包含理想空气燃油比（stoich）
   }
 
-  uint32_t intermediate = rshift<7U>((uint32_t)REQ_FUEL * (uint32_t)iVE); //Need to use an intermediate value to avoid overflowing the long
+  // 使用中间值来避免 long 类型溢出
+  uint32_t intermediate = rshift<7U>((uint32_t)REQ_FUEL * (uint32_t)iVE);
   if ( configPage2.multiplyMAP > 0 ) { intermediate = rshift<7U>(intermediate * (uint32_t)iMAP); }
-  
+
+  // 如果启用了 AFR 相关设置，且是宽带 O2 传感器，且 AFR 暖机时间已过
   if ( (configPage2.includeAFR == true) && (configPage6.egoType == EGO_TYPE_WIDE) && (currentStatus.runSecs > configPage6.ego_sdelay) ) {
-    //EGO type must be set to wideband and the AFR warmup time must've elapsed for this to be used
-    intermediate = rshift<7U>(intermediate * (uint32_t)iAFR);  
+    intermediate = rshift<7U>(intermediate * (uint32_t)iAFR);
   }
   if ( (configPage2.incorporateAFR == true) && (configPage2.includeAFR == false) ) {
     intermediate = rshift<7U>(intermediate * (uint32_t)iAFR);
   }
 
-  //If corrections are huge, use less bitshift to avoid overflow. Sacrifices a bit more accuracy (basically only during very cold temp cranking)
-  if (corrections < 512 ) { 
-    intermediate = rshift<7U>(intermediate * div100(lshift<7U>(corrections))); 
-  } else if (corrections < 1024 ) { 
+  // 如果 corrections 非常大，使用较少的位移，以避免溢出。牺牲一些精度（这主要发生在非常冷的启动时）
+  if (corrections < 512 ) {
+    intermediate = rshift<7U>(intermediate * div100(lshift<7U>(corrections)));
+  } else if (corrections < 1024 ) {
     intermediate = rshift<6U>(intermediate * div100(lshift<6U>(corrections)));
   } else {
     intermediate = rshift<5U>(intermediate * div100(lshift<5U>(corrections)));
@@ -1612,21 +1613,22 @@ uint16_t PW(int REQ_FUEL, byte VE, long MAP, uint16_t corrections, int injOpen)
 
   if (intermediate != 0)
   {
-    //If intermediate is not 0, we need to add the opening time (0 typically indicates that one of the full fuel cuts is active)
-    intermediate += injOpen; //Add the injector opening time
-    //AE calculation only when ACC is active.
+    // 如果 intermediate 不为 0，则需要加上开启时间（0 通常表示全燃油切断模式）
+    intermediate += injOpen; // 加上喷油器开启时间
+    // 仅在 ACC 激活时才进行 AE 计算
     if ( BIT_CHECK(currentStatus.engine, BIT_ENGINE_ACC) )
     {
-      //AE Adds % of req_fuel
+      // AE 添加要求燃油的百分比
       if ( configPage2.aeApplyMode == AE_MODE_ADDER )
         {
           intermediate += div100(((uint32_t)REQ_FUEL) * (currentStatus.AEamount - 100U));
         }
     }
 
+    // 如果 intermediate 超过最大值，则将其限制为 UINT16_MAX，避免溢出
     if ( intermediate > UINT16_MAX)
     {
-      intermediate = UINT16_MAX;  //Make sure this won't overflow when we convert to uInt. This means the maximum pulsewidth possible is 65.535mS
+      intermediate = UINT16_MAX;  // 确保不会溢出，当我们转换为 uint 时，这意味着最大脉宽为 65.535 毫秒
     }
   }
   return (unsigned int)(intermediate);
