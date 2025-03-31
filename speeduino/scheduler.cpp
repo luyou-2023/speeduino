@@ -48,10 +48,19 @@ FuelSchedule fuelSchedule7(FUEL7_COUNTER, FUEL7_COMPARE, FUEL7_TIMER_DISABLE, FU
 FuelSchedule fuelSchedule8(FUEL8_COUNTER, FUEL8_COMPARE, FUEL8_TIMER_DISABLE, FUEL8_TIMER_ENABLE);
 #endif
 
+// 初始化第一个点火调度对象，绑定第一个定时器的计数器、比较寄存器以及定时器启用和禁用函数
 IgnitionSchedule ignitionSchedule1(IGN1_COUNTER, IGN1_COMPARE, IGN1_TIMER_DISABLE, IGN1_TIMER_ENABLE);
+
+// 初始化第二个点火调度对象，绑定第二个定时器的计数器、比较寄存器以及定时器启用和禁用函数
 IgnitionSchedule ignitionSchedule2(IGN2_COUNTER, IGN2_COMPARE, IGN2_TIMER_DISABLE, IGN2_TIMER_ENABLE);
+
+// 初始化第三个点火调度对象，绑定第三个定时器的计数器、比较寄存器以及定时器启用和禁用函数
 IgnitionSchedule ignitionSchedule3(IGN3_COUNTER, IGN3_COMPARE, IGN3_TIMER_DISABLE, IGN3_TIMER_ENABLE);
+
+// 初始化第四个点火调度对象，绑定第四个定时器的计数器、比较寄存器以及定时器启用和禁用函数
 IgnitionSchedule ignitionSchedule4(IGN4_COUNTER, IGN4_COMPARE, IGN4_TIMER_DISABLE, IGN4_TIMER_ENABLE);
+
+// 初始化第五个点火调度对象，绑定第五个定时器的计数器、比较寄存器以及定时器启用和禁用函数
 IgnitionSchedule ignitionSchedule5(IGN5_COUNTER, IGN5_COMPARE, IGN5_TIMER_DISABLE, IGN5_TIMER_ENABLE);
 
 #if IGN_CHANNELS >= 6
@@ -270,7 +279,7 @@ void _setIgnitionScheduleRunning(IgnitionSchedule &schedule, unsigned long timeo
   if(schedule.endScheduleSetByDecoder == false) {
     schedule.endCompare = schedule.startCompare + uS_TO_TIMER_COMPARE(duration);
   }
-  // 调用定时器设置函数，设置定时器比较值，触发点火调度
+  // 调用定时器设置函数，设置定时器比较值，触发点火调度 ISR(TIMER3_COMPA_vect)  schedule.startCompare 都是特定类型的变量
   SET_COMPARE(schedule.compare, schedule.startCompare);
 
   // 设置调度状态为 "PENDING"，表示调度已启动，等待执行
@@ -344,37 +353,58 @@ extern void beginInjectorPriming(void)
 // Shared ISR function for all fuel timers.
 // This is completely inlined into the ISR - there is no function call
 // overhead.
+// 共享的定时器中断服务程序 (ISR)，用于处理所有燃油定时器。
+// 此函数完全内联到 ISR 中，避免了函数调用的开销。
 static inline __attribute__((always_inline)) void fuelScheduleISR(FuelSchedule &schedule)
 {
-  if (schedule.Status == PENDING) //Check to see if this schedule is turn on
+  // 检查当前调度是否为 PENDING（待启动）状态
+  if (schedule.Status == PENDING)
   {
+    // 调用调度的开始函数，启动该调度
     schedule.pStartFunction();
-    schedule.Status = RUNNING; //Set the status to be in progress (ie The start callback has been called, but not the end callback)
-    SET_COMPARE(schedule.compare, schedule.counter + uS_TO_TIMER_COMPARE(schedule.duration) ); //Doing this here prevents a potential overflow on restarts
+
+    // 将调度状态更改为 RUNNING（进行中），表示开始回调已执行，但结束回调尚未执行
+    schedule.Status = RUNNING;
+
+    // 设置定时器比较值，防止在重新启动时溢出
+    // 计算调度的持续时间并设置比较值
+    SET_COMPARE(schedule.compare, schedule.counter + uS_TO_TIMER_COMPARE(schedule.duration) );
   }
+  // 如果调度状态是 RUNNING（进行中），表示已经启动，检查是否需要结束该调度
   else if (schedule.Status == RUNNING)
   {
+      // 调用调度的结束函数
       schedule.pEndFunction();
-      schedule.Status = OFF; //Turn off the schedule
 
-      //If there is a next schedule queued up, activate it
+      // 将调度状态更改为 OFF（关闭），表示调度已完成
+      schedule.Status = OFF;
+
+      // 如果有下一个调度，则激活下一个调度
       if(schedule.hasNextSchedule == true)
       {
+        // 设置下一个调度的开始比较值和结束比较值
         SET_COMPARE(schedule.compare, schedule.nextStartCompare);
         SET_COMPARE(schedule.endCompare, schedule.nextEndCompare);
+
+        // 将状态设置为 PENDING，表示下一个调度已经排队等候执行
         schedule.Status = PENDING;
+
+        // 重置下一个调度标志
         schedule.hasNextSchedule = false;
       }
-      else 
-      { 
-        schedule.pTimerDisable(); 
+      else
+      {
+        // 如果没有下一个调度，则禁用定时器
+        schedule.pTimerDisable();
       }
   }
-  else if (schedule.Status == OFF) 
-  { 
-    schedule.pTimerDisable(); //Safety check. Turn off this output compare unit and return without performing any action
-  } 
-} 
+  // 如果调度状态是 OFF（关闭），说明此调度不再活动
+  else if (schedule.Status == OFF)
+  {
+    // 禁用定时器输出比较单元，确保没有进一步的操作
+    schedule.pTimerDisable();
+  }
+}
 
 /*******************************************************************************************************************************************************************************************************/
 /** fuelSchedule*Interrupt (All 8 ISR functions below) get called (as timed interrupts) when either the start time or the duration time are reached.
@@ -383,89 +413,102 @@ static inline __attribute__((always_inline)) void fuelScheduleISR(FuelSchedule &
 * - startCallback - change scheduler into RUNNING state
 * - endCallback - change scheduler into OFF state (or PENDING if schedule.hasNextSchedule is set)
 */
-//Timer3A (fuel schedule 1) Compare Vector
-#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__) || defined(__AVR_ATmega2561__) //AVR chips use the ISR for this
-//fuelSchedules 1 and 5
-ISR(TIMER3_COMPA_vect) //cppcheck-suppress misra-c2012-8.2
+// Timer3A (燃油调度1) 比较向量
+#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__) || defined(__AVR_ATmega2561__) // AVR芯片使用ISR
+// 这是为燃油调度1和5设置的定时器比较中断服务程序
+ISR(TIMER3_COMPA_vect) // cppcheck-suppress misra-c2012-8.2
 #else
-void fuelSchedule1Interrupt() //Most ARM chips can simply call a function
+// 对于大多数ARM芯片，可以简单调用一个函数来处理定时器中断
+void fuelSchedule1Interrupt() // 处理燃油调度1的中断
 #endif
-  {
+{
+    // 调用共享的定时器ISR处理函数
     fuelScheduleISR(fuelSchedule1);
-  }
+}
 
 
-#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__) || defined(__AVR_ATmega2561__) //AVR chips use the ISR for this
-ISR(TIMER3_COMPB_vect) //cppcheck-suppress misra-c2012-8.2
+#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__) || defined(__AVR_ATmega2561__) // AVR芯片使用ISR
+ISR(TIMER3_COMPB_vect) // cppcheck-suppress misra-c2012-8.2
 #else
-void fuelSchedule2Interrupt() //Most ARM chips can simply call a function
+// 对于大多数ARM芯片，可以简单调用一个函数来处理定时器中断
+void fuelSchedule2Interrupt() // 处理燃油调度2的中断
 #endif
-  {
+{
     fuelScheduleISR(fuelSchedule2);
-  }
+}
 
 
-#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__) || defined(__AVR_ATmega2561__) //AVR chips use the ISR for this
-ISR(TIMER3_COMPC_vect) //cppcheck-suppress misra-c2012-8.2
+#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__) || defined(__AVR_ATmega2561__) // AVR芯片使用ISR
+ISR(TIMER3_COMPC_vect) // cppcheck-suppress misra-c2012-8.2
 #else
-void fuelSchedule3Interrupt() //Most ARM chips can simply call a function
+// 对于大多数ARM芯片，可以简单调用一个函数来处理定时器中断
+void fuelSchedule3Interrupt() // 处理燃油调度3的中断
 #endif
-  {
+{
     fuelScheduleISR(fuelSchedule3);
-  }
+}
 
 
-#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__) || defined(__AVR_ATmega2561__) //AVR chips use the ISR for this
-ISR(TIMER4_COMPB_vect) //cppcheck-suppress misra-c2012-8.2
+#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__) || defined(__AVR_ATmega2561__) // AVR芯片使用ISR
+ISR(TIMER4_COMPB_vect) // cppcheck-suppress misra-c2012-8.2
 #else
-void fuelSchedule4Interrupt() //Most ARM chips can simply call a function
+// 对于大多数ARM芯片，可以简单调用一个函数来处理定时器中断
+void fuelSchedule4Interrupt() // 处理燃油调度4的中断
 #endif
-  {
+{
     fuelScheduleISR(fuelSchedule4);
-  }
+}
 
+// 如果注射器通道数大于或等于5，处理燃油调度5
 #if INJ_CHANNELS >= 5
-#if defined(CORE_AVR) //AVR chips use the ISR for this
-ISR(TIMER4_COMPC_vect) //cppcheck-suppress misra-c2012-8.2
+#if defined(CORE_AVR) // AVR芯片使用ISR
+ISR(TIMER4_COMPC_vect) // cppcheck-suppress misra-c2012-8.2
 #else
-void fuelSchedule5Interrupt() //Most ARM chips can simply call a function
+// 对于大多数ARM芯片，可以简单调用一个函数来处理定时器中断
+void fuelSchedule5Interrupt() // 处理燃油调度5的中断
 #endif
-  {
+{
     fuelScheduleISR(fuelSchedule5);
-  }
+}
 #endif
 
+// 如果注射器通道数大于或等于6，处理燃油调度6
 #if INJ_CHANNELS >= 6
-#if defined(CORE_AVR) //AVR chips use the ISR for this
-ISR(TIMER4_COMPA_vect) //cppcheck-suppress misra-c2012-8.2
+#if defined(CORE_AVR) // AVR芯片使用ISR
+ISR(TIMER4_COMPA_vect) // cppcheck-suppress misra-c2012-8.2
 #else
-void fuelSchedule6Interrupt() //Most ARM chips can simply call a function
+// 对于大多数ARM芯片，可以简单调用一个函数来处理定时器中断
+void fuelSchedule6Interrupt() // 处理燃油调度6的中断
 #endif
-  {
+{
     fuelScheduleISR(fuelSchedule6);
-  }
+}
 #endif
 
+// 如果注射器通道数大于或等于7，处理燃油调度7
 #if INJ_CHANNELS >= 7
-#if defined(CORE_AVR) //AVR chips use the ISR for this
-ISR(TIMER5_COMPC_vect) //cppcheck-suppress misra-c2012-8.2
+#if defined(CORE_AVR) // AVR芯片使用ISR
+ISR(TIMER5_COMPC_vect) // cppcheck-suppress misra-c2012-8.2
 #else
-void fuelSchedule7Interrupt() //Most ARM chips can simply call a function
+// 对于大多数ARM芯片，可以简单调用一个函数来处理定时器中断
+void fuelSchedule7Interrupt() // 处理燃油调度7的中断
 #endif
-  {
+{
     fuelScheduleISR(fuelSchedule7);
-  }
+}
 #endif
 
+// 如果注射器通道数大于或等于8，处理燃油调度8
 #if INJ_CHANNELS >= 8
-#if defined(CORE_AVR) //AVR chips use the ISR for this
-ISR(TIMER5_COMPB_vect) //cppcheck-suppress misra-c2012-8.2
+#if defined(CORE_AVR) // AVR芯片使用ISR
+ISR(TIMER5_COMPB_vect) // cppcheck-suppress misra-c2012-8.2
 #else
-void fuelSchedule8Interrupt() //Most ARM chips can simply call a function
+// 对于大多数ARM芯片，可以简单调用一个函数来处理定时器中断
+void fuelSchedule8Interrupt() // 处理燃油调度8的中断
 #endif
-  {
+{
     fuelScheduleISR(fuelSchedule8);
-  }
+}
 #endif
 
 // Shared ISR function for all ignition timers.

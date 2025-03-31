@@ -116,35 +116,63 @@ struct IgnitionSchedule {
   // Deduce the real types of the counter and compare registers.
   // COMPARE_TYPE is NOT the same - it's just an integer type wide enough to
   // store 16-bit counter/compare calculation results.
-  using counter_t = decltype(IGN1_COUNTER);
-  using compare_t = decltype(IGN1_COMPARE);
+  using counter_t = decltype(IGN1_COUNTER); // 推导计数器寄存器的类型，通常是一个 16 位的寄存器类型
+  using compare_t = decltype(IGN1_COMPARE); // 推导比较寄存器的类型，通常是一个 16 位的寄存器类型
 
-  IgnitionSchedule( counter_t &counter, compare_t &compare,
+  // 构造函数，用于初始化计数器、比较寄存器、定时器禁用和启用函数
+  IgnitionSchedule(counter_t &counter, compare_t &compare,
             void (&_pTimerDisable)(), void (&_pTimerEnable)())
-  : counter(counter)
-  , compare(compare)
-  , pTimerDisable(_pTimerDisable)
-  , pTimerEnable(_pTimerEnable)
+  : counter(counter) // 初始化计数器引用
+  , compare(compare) // 初始化比较寄存器引用
+  , pTimerDisable(_pTimerDisable) // 初始化定时器禁用函数引用
+  , pTimerEnable(_pTimerEnable)   // 初始化定时器启用函数引用
   {
   }
 
-  volatile unsigned long duration;///< Scheduled duration (uS ?)
-  volatile ScheduleStatus Status; ///< Schedule status: OFF, PENDING, STAGED, RUNNING
-  void (*pStartCallback)(void);        ///< Start Callback function for schedule
-  void (*pEndCallback)(void);          ///< End Callback function for schedule
-  volatile unsigned long startTime; /**< The system time (in uS) that the schedule started, used by the overdwell protection in timers.ino */
-  volatile COMPARE_TYPE startCompare; ///< The counter value of the timer when this will start
-  volatile COMPARE_TYPE endCompare;   ///< The counter value of the timer when this will end
+  // 调度的持续时间（单位微秒）
+  volatile unsigned long duration;
 
-  COMPARE_TYPE nextStartCompare;      ///< Planned start of next schedule (when current schedule is RUNNING)
-  COMPARE_TYPE nextEndCompare;        ///< Planned end of next schedule (when current schedule is RUNNING)
-  volatile bool hasNextSchedule = false; ///< Enable flag for planned next schedule (when current schedule is RUNNING)
+  // 调度的状态：OFF, PENDING, STAGED, RUNNING
+  volatile ScheduleStatus Status;
+
+  // 启动回调函数，当调度开始时调用
+  void (*pStartCallback)(void);
+
+  // 结束回调函数，当调度结束时调用
+  void (*pEndCallback)(void);
+
+  // 系统时间（单位微秒），用于定时器中的超时保护
+  volatile unsigned long startTime;
+
+  // 调度开始时计数器的比较值
+  volatile COMPARE_TYPE startCompare;
+
+  // 调度结束时计数器的比较值
+  volatile COMPARE_TYPE endCompare;
+
+  // 下一个调度的开始比较值
+  COMPARE_TYPE nextStartCompare;
+
+  // 下一个调度的结束比较值
+  COMPARE_TYPE nextEndCompare;
+
+  // 是否启用了下一个调度
+  volatile bool hasNextSchedule = false;
+
+  // 是否由解码器设置了调度结束时间
   volatile bool endScheduleSetByDecoder = false;
 
-  counter_t &counter;  // Reference to the counter register. E.g. TCNT3
-  compare_t &compare;  // Reference to the compare register. E.g. OCR3A
-  void (&pTimerDisable)();    // Reference to the timer disable function
-  void (&pTimerEnable)();     // Reference to the timer enable function  
+  // 计数器寄存器的引用（例如：TCNT3）
+  counter_t &counter;
+
+  // 比较寄存器的引用（例如：OCR3A）
+  compare_t &compare;
+
+  // 定时器禁用函数的引用
+  void (&pTimerDisable)();
+
+  // 定时器启用函数的引用
+  void (&pTimerEnable)();
 };
 
 void _setIgnitionScheduleRunning(IgnitionSchedule &schedule, unsigned long timeout, unsigned long duration);
