@@ -80,14 +80,15 @@
   #define FUEL7_COMPARE OCR5C //Replaces ignition 3
   #define FUEL8_COMPARE OCR5B //Replaces ignition 2
 
-  #define IGN1_COMPARE  OCR5A
-  #define IGN2_COMPARE  OCR5B
-  #define IGN3_COMPARE  OCR5C
-  #define IGN4_COMPARE  OCR4A //Replaces injector 6
-  #define IGN5_COMPARE  OCR4C //Replaces injector 5
-  #define IGN6_COMPARE  OCR4B //Replaces injector 4
-  #define IGN7_COMPARE  OCR3C //Replaces injector 3
-  #define IGN8_COMPARE  OCR3B //Replaces injector 2
+  // 定时器输出比较寄存器
+  #define IGN1_COMPARE  OCR5A  // 点火控制信号 1 关联到 Timer 5 的通道 A
+  #define IGN2_COMPARE  OCR5B  // 点火控制信号 2 关联到 Timer 5 的通道 B
+  #define IGN3_COMPARE  OCR5C  // 点火控制信号 3 关联到 Timer 5 的通道 C
+  #define IGN4_COMPARE  OCR4A  // 点火控制信号 4 关联到 Timer 4 的通道 A
+  #define IGN5_COMPARE  OCR4C  // 点火控制信号 5 关联到 Timer 4 的通道 C
+  #define IGN6_COMPARE  OCR4B  // 点火控制信号 6 关联到 Timer 4 的通道 B
+  #define IGN7_COMPARE  OCR3C  // 点火控制信号 7 关联到 Timer 3 的通道 C
+  #define IGN8_COMPARE  OCR3B  // 点火控制信号 8 关联到 Timer 3 的通道 B
 
   //Note that the interrupt flag is reset BEFORE the interrupt is enabled
 static inline void FUEL1_TIMER_ENABLE(void) { TIFR3 |= (1<<OCF3A) ; TIMSK3 |= (1 << OCIE3A); } //Turn on the A compare unit (ie turn on the interrupt)
