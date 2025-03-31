@@ -894,49 +894,63 @@ void triggerSetup_DualWheel(void)
 #endif
 }
 
-/** Dual Wheel Primary.
- * 
- * */
+/** 双轮主触发处理函数
+ * 该函数用于处理来自曲轴和凸轮轴传感器的触发信号，并根据每个齿的时间间隔计算点火时序。
+ * 具体处理了曲轴转动的检测、过滤、革命计数及点火角度的计算。
+ */
 void triggerPri_DualWheel(void)
 {
-    curTime = micros();
-    curGap = curTime - toothLastToothTime;
-    if ( curGap >= triggerFilterTime )
+    curTime = micros();  // 获取当前时间，单位是微秒
+    curGap = curTime - toothLastToothTime;  // 计算当前齿轮与上一个齿轮之间的时间间隔
+
+    if (curGap >= triggerFilterTime)  // 如果当前时间间隔大于或等于触发过滤时间
     {
-      toothCurrentCount++; //Increment the tooth counter
-      BIT_SET(decoderState, BIT_DECODER_VALID_TRIGGER); //Flag this pulse as being a valid trigger (ie that it passed filters)
+        toothCurrentCount++;  // 增加齿轮计数
+        BIT_SET(decoderState, BIT_DECODER_VALID_TRIGGER);  // 将当前脉冲标记为有效触发（通过了过滤器）
 
-      toothLastMinusOneToothTime = toothLastToothTime;
-      toothLastToothTime = curTime;
+        toothLastMinusOneToothTime = toothLastToothTime;  // 保存上一个齿轮的时间
+        toothLastToothTime = curTime;  // 更新当前齿轮的时间
 
-      if ( currentStatus.hasSync == true )
-      {
-        if ( (toothCurrentCount == 1) || (toothCurrentCount > configPage4.triggerTeeth) )
+        if (currentStatus.hasSync == true)  // 如果系统已同步
         {
-          toothCurrentCount = 1;
-          revolutionOne = !revolutionOne; //Flip sequential revolution tracker
-          toothOneMinusOneTime = toothOneTime;
-          toothOneTime = curTime;
-          currentStatus.startRevolutions++; //Counter
-          if ( configPage4.TrigSpeed == CAM_SPEED ) { currentStatus.startRevolutions++; } //Add an extra revolution count if we're running at cam speed
+            // 如果是第一次齿轮触发，或者齿轮计数大于配置的触发齿数，则表示新的一轮开始
+            if ((toothCurrentCount == 1) || (toothCurrentCount > configPage4.triggerTeeth))
+            {
+                toothCurrentCount = 1;  // 重置齿轮计数为1
+                revolutionOne = !revolutionOne;  // 翻转革命计数器，用来标记发动机是否已完成一轮转动
+                toothOneMinusOneTime = toothOneTime;  // 保存上一个完整革命的时间
+                toothOneTime = curTime;  // 更新当前革命的时间
+                currentStatus.startRevolutions++;  // 增加革命计数
+
+                if (configPage4.TrigSpeed == CAM_SPEED)  // 如果当前速度是凸轮轴速度
+                {
+                    currentStatus.startRevolutions++;  // 额外增加一次革命计数
+                }
+            }
+
+            setFilter(curGap);  // 更新触发器的过滤值
         }
 
-        setFilter(curGap); //Recalc the new filter value
-      }
-
-      //NEW IGNITION MODE
-      if( (configPage2.perToothIgn == true) && (!BIT_CHECK(currentStatus.engine, BIT_ENGINE_CRANK)) ) 
-      {
-        int16_t crankAngle = ( (toothCurrentCount-1) * triggerToothAngle ) + configPage4.triggerAngle;
-        if( (configPage4.sparkMode == IGN_MODE_SEQUENTIAL) && (revolutionOne == true) && (configPage4.TrigSpeed == CRANK_SPEED) )
+        // 新的点火模式
+        if ((configPage2.perToothIgn == true) && (!BIT_CHECK(currentStatus.engine, BIT_ENGINE_CRANK)))  // 如果启用了每齿点火并且当前不在曲轴模式下
         {
-          crankAngle += 360;
-          checkPerToothTiming(crankAngle, (configPage4.triggerTeeth + toothCurrentCount)); 
+            // 计算当前齿的曲轴角度
+            int16_t crankAngle = ((toothCurrentCount - 1) * triggerToothAngle) + configPage4.triggerAngle;
+
+            // 如果是顺序点火模式，并且当前是曲轴速度模式，则加上360度进行点火角度调整
+            if ((configPage4.sparkMode == IGN_MODE_SEQUENTIAL) && (revolutionOne == true) && (configPage4.TrigSpeed == CRANK_SPEED))
+            {
+                crankAngle += 360;  // 顺序点火模式，调整曲轴角度
+                checkPerToothTiming(crankAngle, (configPage4.triggerTeeth + toothCurrentCount));  // 检查并执行每齿点火时序
+            }
+            else
+            {
+                checkPerToothTiming(crankAngle, toothCurrentCount);  // 检查并执行每齿点火时序
+            }
         }
-        else{ checkPerToothTiming(crankAngle, toothCurrentCount); }
-      }
-   } //Trigger filter
+    }  // 结束触发过滤
 }
+
 /** Dual Wheel Secondary.
  * 
  * */

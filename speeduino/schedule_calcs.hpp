@@ -114,12 +114,21 @@ static inline uint32_t calculateIgnitionTimeout(const IgnitionSchedule &schedule
 
 #define MIN_CYCLES_FOR_ENDCOMPARE 6
 
+/** 调整曲轴角度
+ * 该函数用于根据当前点火调度和曲轴角度，计算并设置点火调度的比较值，用于控制点火时序。
+ *
+ * @param schedule 点火调度对象，用于记录当前点火计划的状态和参数
+ * @param endAngle 目标结束角度，用于计算角度差
+ * @param crankAngle 当前的曲轴角度
+ */
 inline void adjustCrankAngle(IgnitionSchedule &schedule, int endAngle, int crankAngle) {
-  if( (schedule.Status == RUNNING) ) { 
-    SET_COMPARE(schedule.compare, schedule.counter + uS_TO_TIMER_COMPARE( angleToTimeMicroSecPerDegree( ignitionLimits( (endAngle - crankAngle) ) ) ) ); 
-  }
-  else if(currentStatus.startRevolutions > MIN_CYCLES_FOR_ENDCOMPARE) { 
-    schedule.endCompare = schedule.counter + uS_TO_TIMER_COMPARE( angleToTimeMicroSecPerDegree( ignitionLimits( (endAngle - crankAngle) ) ) ); 
-    schedule.endScheduleSetByDecoder = true; 
-  }
+    if (schedule.Status == RUNNING) {  // 如果当前点火调度的状态为运行中
+        // 计算角度差，转换为时间，并设置比较值
+        SET_COMPARE(schedule.compare, schedule.counter + uS_TO_TIMER_COMPARE( angleToTimeMicroSecPerDegree( ignitionLimits( (endAngle - crankAngle) ) ) ));
+    }
+    else if (currentStatus.startRevolutions > MIN_CYCLES_FOR_ENDCOMPARE) {  // 如果已经进行了一定数量的革命，确保比较值被正确设置
+        // 计算角度差，转换为时间，并设置结束比较值
+        schedule.endCompare = schedule.counter + uS_TO_TIMER_COMPARE( angleToTimeMicroSecPerDegree( ignitionLimits( (endAngle - crankAngle) ) ) );
+        schedule.endScheduleSetByDecoder = true;  // 标记该比较值是由解码器设置的
+    }
 }
