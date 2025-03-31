@@ -203,91 +203,110 @@ static inline void addToothLogEntry(unsigned long toothTime, byte whichTooth)
   } //Tooth/Composite log enabled
 }
 
-/** Interrupt handler for primary trigger.
-* This function is called on both the rising and falling edges of the primary trigger, when either the 
-* composite or tooth loggers are turned on. 
-*/
+/**
+ * 主触发器的中断处理程序。
+ * 当主触发器的上升沿或下降沿触发时，如果复合触发器或齿轮记录器被启用，都会调用该函数。
+ */
 void loggerPrimaryISR(void)
 {
-  BIT_CLEAR(decoderState, BIT_DECODER_VALID_TRIGGER); //This value will be set to the return value of the decoder function, indicating whether or not this pulse passed the filters
-  bool validEdge = false; //This is set true below if the edge 
-  /* 
-  Need to still call the standard decoder trigger. 
-  Two checks here:
-  1) If the primary trigger is RISING, then check whether the primary is currently HIGH
-  2) If the primary trigger is FALLING, then check whether the primary is currently LOW
-  If either of these are true, the primary decoder function is called
-  */
-  if( ( (primaryTriggerEdge == RISING) && (READ_PRI_TRIGGER() == HIGH) ) || ( (primaryTriggerEdge == FALLING) && (READ_PRI_TRIGGER() == LOW) ) || (primaryTriggerEdge == CHANGE) )
+  // 清除 BIT_DECODER_VALID_TRIGGER，表示正在处理该触发信号
+  BIT_CLEAR(decoderState, BIT_DECODER_VALID_TRIGGER); // 该值将在解码函数的返回值中设置，表示该脉冲是否通过了滤波器
+
+  bool validEdge = false; // 如果边缘有效，则设置为 true
+
+  /*
+   * 仍然需要调用标准的解码触发函数。
+   * 这里有两个检查：
+   * 1) 如果主触发器是上升沿（RISING），则检查主触发器当前是否为 HIGH。
+   * 2) 如果主触发器是下降沿（FALLING），则检查主触发器当前是否为 LOW。
+   * 如果其中任何条件为真，则调用主解码器函数。
+   */
+  if( ( (primaryTriggerEdge == RISING) && (READ_PRI_TRIGGER() == HIGH) ) ||
+      ( (primaryTriggerEdge == FALLING) && (READ_PRI_TRIGGER() == LOW) ) ||
+      (primaryTriggerEdge == CHANGE) )
   {
-    triggerHandler();
-    validEdge = true;
+    triggerHandler(); // 如果边缘有效，调用触发处理程序
+    validEdge = true; // 标记边缘有效
   }
+
+  // 如果启用了齿轮记录器，并且触发信号有效
   if( (currentStatus.toothLogEnabled == true) && (BIT_CHECK(decoderState, BIT_DECODER_VALID_TRIGGER)) )
   {
-    //Tooth logger only logs when the edge was correct
-    if(validEdge == true) 
-    { 
-      addToothLogEntry(curGap, TOOTH_CRANK);
+    // 齿轮记录器仅在触发边缘正确时记录
+    if(validEdge == true)
+    {
+      addToothLogEntry(curGap, TOOTH_CRANK); // 添加齿轮记录条目
     }
   }
   else if( (currentStatus.compositeTriggerUsed > 0) )
   {
-    //Composite logger adds an entry regardless of which edge it was
-    addToothLogEntry(curGap, TOOTH_CRANK);
+    // 复合触发器无论边缘如何都会添加记录条目
+    addToothLogEntry(curGap, TOOTH_CRANK); // 添加齿轮记录条目
   }
 }
 
-/** Interrupt handler for secondary trigger.
-* As loggerPrimaryISR, but for the secondary trigger.
-*/
+/**
+ * 次级触发器的中断处理程序。
+ * 类似于 loggerPrimaryISR，但用于次级触发器。
+ */
 void loggerSecondaryISR(void)
 {
-  BIT_CLEAR(decoderState, BIT_DECODER_VALID_TRIGGER); //This value will be set to the return value of the decoder function, indicating whether or not this pulse passed the filters
-  BIT_SET(decoderState, BIT_DECODER_VALID_TRIGGER); //This value will be set to the return value of the decoder function, indicating whether or not this pulse passed the filters
-  /* 3 checks here:
-  1) If the primary trigger is RISING, then check whether the primary is currently HIGH
-  2) If the primary trigger is FALLING, then check whether the primary is currently LOW
-  3) The secondary trigger is CHANGING
-  If any of these are true, the primary decoder function is called
-  */
-  if( ( (secondaryTriggerEdge == RISING) && (READ_SEC_TRIGGER() == HIGH) ) || ( (secondaryTriggerEdge == FALLING) && (READ_SEC_TRIGGER() == LOW) ) || (secondaryTriggerEdge == CHANGE) )
+  // 清除 BIT_DECODER_VALID_TRIGGER，表示正在处理该触发信号
+  BIT_CLEAR(decoderState, BIT_DECODER_VALID_TRIGGER);
+  // 设置 BIT_DECODER_VALID_TRIGGER，表示该触发信号已经通过解码器滤波器
+  BIT_SET(decoderState, BIT_DECODER_VALID_TRIGGER);
+
+  /* 三个检查条件：
+   * 1) 如果次级触发器是上升沿（RISING），则检查次级触发器当前是否为 HIGH。
+   * 2) 如果次级触发器是下降沿（FALLING），则检查次级触发器当前是否为 LOW。
+   * 3) 如果次级触发器是变化（CHANGE）。
+   * 如果其中任何条件为真，则调用次级触发处理函数。
+   */
+  if( ( (secondaryTriggerEdge == RISING) && (READ_SEC_TRIGGER() == HIGH) ) ||
+      ( (secondaryTriggerEdge == FALLING) && (READ_SEC_TRIGGER() == LOW) ) ||
+      (secondaryTriggerEdge == CHANGE) )
   {
-    triggerSecondaryHandler();
+    triggerSecondaryHandler(); // 调用次级触发处理程序
   }
-  //No tooth logger for the secondary input
+
+  // 次级触发器没有齿轮记录器
   if( (currentStatus.compositeTriggerUsed > 0) && (BIT_CHECK(decoderState, BIT_DECODER_VALID_TRIGGER)) )
   {
-    //Composite logger adds an entry regardless of which edge it was
-    addToothLogEntry(curGap2, TOOTH_CAM_SECONDARY);
+    // 复合触发器无论边缘如何都会添加记录条目
+    addToothLogEntry(curGap2, TOOTH_CAM_SECONDARY); // 添加次级触发器齿轮记录条目
   }
 }
 
-/** Interrupt handler for third trigger.
-* As loggerPrimaryISR, but for the third trigger.
-*/
+/**
+ * 第三级触发器的中断处理程序。
+ * 类似于 loggerPrimaryISR，但用于第三级触发器。
+ */
 void loggerTertiaryISR(void)
 {
-  BIT_CLEAR(decoderState, BIT_DECODER_VALID_TRIGGER); //This value will be set to the return value of the decoder function, indicating whether or not this pulse passed the filters
-  BIT_SET(decoderState, BIT_DECODER_VALID_TRIGGER); //This value will be set to the return value of the decoder function, indicating whether or not this pulse passed the filters
-  /* 3 checks here:
-  1) If the primary trigger is RISING, then check whether the primary is currently HIGH
-  2) If the primary trigger is FALLING, then check whether the primary is currently LOW
-  3) The secondary trigger is CHANGING
-  If any of these are true, the primary decoder function is called
-  */
-  
-  
-  if( ( (tertiaryTriggerEdge == RISING) && ( READ_THIRD_TRIGGER() == HIGH) ) || ( (tertiaryTriggerEdge == FALLING) && (READ_THIRD_TRIGGER() == LOW) ) || (tertiaryTriggerEdge == CHANGE) )
+  // 清除 BIT_DECODER_VALID_TRIGGER，表示正在处理该触发信号
+  BIT_CLEAR(decoderState, BIT_DECODER_VALID_TRIGGER);
+  // 设置 BIT_DECODER_VALID_TRIGGER，表示该触发信号已经通过解码器滤波器
+  BIT_SET(decoderState, BIT_DECODER_VALID_TRIGGER);
+
+  /* 三个检查条件：
+   * 1) 如果第三级触发器是上升沿（RISING），则检查第三级触发器当前是否为 HIGH。
+   * 2) 如果第三级触发器是下降沿（FALLING），则检查第三级触发器当前是否为 LOW。
+   * 3) 如果第三级触发器是变化（CHANGE）。
+   * 如果其中任何条件为真，则调用第三级触发处理函数。
+   */
+  if( ( (tertiaryTriggerEdge == RISING) && ( READ_THIRD_TRIGGER() == HIGH) ) ||
+      ( (tertiaryTriggerEdge == FALLING) && (READ_THIRD_TRIGGER() == LOW) ) ||
+      (tertiaryTriggerEdge == CHANGE) )
   {
-    triggerTertiaryHandler();
+    triggerTertiaryHandler(); // 调用第三级触发处理程序
   }
-  //No tooth logger for the secondary input
+
+  // 第三级触发器没有齿轮记录器
   if( (currentStatus.compositeTriggerUsed > 0) && (BIT_CHECK(decoderState, BIT_DECODER_VALID_TRIGGER)) )
   {
-    //Composite logger adds an entry regardless of which edge it was
-    addToothLogEntry(curGap3, TOOTH_CAM_TERTIARY);
-  }  
+    // 复合触发器无论边缘如何都会添加记录条目
+    addToothLogEntry(curGap3, TOOTH_CAM_TERTIARY); // 添加第三级触发器齿轮记录条目
+  }
 }
 
 #if false

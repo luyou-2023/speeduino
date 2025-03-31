@@ -504,23 +504,39 @@ bool is2ByteEntry(uint8_t key)
   return key == pgm_read_byte(&fsIntIndex[bot]);
 }
 
+/**
+ * 启动齿轮记录器
+ * 该函数用于启用齿轮记录器并设置相关状态。
+ */
 void startToothLogger(void)
 {
+  // 启用齿轮记录器
   currentStatus.toothLogEnabled = true;
-  currentStatus.compositeTriggerUsed = 0U; //Safety first (Should never be required)
+  // 确保 compositeTriggerUsed 设置为 0（安全起见，不应需要此操作）
+  currentStatus.compositeTriggerUsed = 0U;
+  // 清除 BIT_STATUS1_TOOTHLOG1READY 状态位
   BIT_CLEAR(currentStatus.status1, BIT_STATUS1_TOOTHLOG1READY);
+  // 重置齿轮历史记录索引
   toothHistoryIndex = 0U;
 
-  //Disconnect the standard interrupt and add the logger version
+  // 断开标准中断，并添加记录器版本
   detachInterrupt( digitalPinToInterrupt(pinTrigger) );
+  // 为主触发器设置中断，触发时调用 loggerPrimaryISR 函数 digitalPinToInterrupt 是一个函数，用于将指定的数字引脚（如 Arduino 上的引脚）转换为对应的中断编号。在一些平台中，不同的引脚可能会有不同的中断号，这个函数的作用就是在这些平台之间提供兼容性
+  /**
+  // 传感器输入引脚 init.cc
+        pinTrigger = 20; //The CAS pin // 曲轴位置传感器(CAS)
+        pinTrigger2 = 21; //The Cam Sensor pin  // 凸轮轴位置传感器
+        pinTrigger3 = 3; //The Cam sensor 2 pin
+  */
   attachInterrupt( digitalPinToInterrupt(pinTrigger), loggerPrimaryISR, CHANGE );
 
+  // 如果不使用 VSS_USES_RPM2，则断开第二触发器的中断，并添加第二触发器的记录器版本
   if(VSS_USES_RPM2() != true)
   {
     detachInterrupt( digitalPinToInterrupt(pinTrigger2) );
-    attachInterrupt( digitalPinToInterrupt(pinTrigger2), loggerSecondaryISR, CHANGE );  
+    // 为次级触发器设置中断，触发时调用 loggerSecondaryISR 函数
+    attachInterrupt( digitalPinToInterrupt(pinTrigger2), loggerSecondaryISR, CHANGE );
   }
-  
 }
 
 void stopToothLogger(void)

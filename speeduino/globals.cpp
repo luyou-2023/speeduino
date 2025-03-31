@@ -171,8 +171,11 @@ byte pinCoil7; ///< Pin for coil 7
 byte pinCoil8; ///< Pin for coil 8
 byte ignitionOutputControl = OUTPUT_CONTROL_DIRECT; /**< Specifies whether the coils are controlled directly (Via an IO pin)
    or using something like the MC33810. 0 = Direct (OUTPUT_CONTROL_DIRECT), 10 = MC33810 (OUTPUT_CONTROL_MC33810) */
+//这个变量通常用于存储曲轴传感器（CAS, Crankshaft Angle Sensor）所连接的引脚。曲轴传感器通常用于测量引擎的转速（RPM）和曲轴的角度信息，因此 pinTrigger 用于监控曲轴信号。
 byte pinTrigger;  ///< RPM1 (Typically CAS=crankshaft angle sensor) pin
+//这个变量用于存储第二个传感器引脚，通常是凸轮传感器（Cam Sensor）连接的引脚。凸轮传感器用于监控引擎中凸轮轴的位置，帮助判断引擎的气门开闭状态。
 byte pinTrigger2; ///< RPM2 (Typically the Cam Sensor) pin
+//这个变量用于存储第二个凸轮传感器（如果有的话）的引脚，通常在有双凸轮轴的发动机中使用。这个传感器与 pinTrigger2 类似，也是用来监控凸轮轴的位置。
 byte pinTrigger3;	///< the 2nd cam sensor pin
 byte pinTPS;      //TPS input pin
 byte pinMAP;      //MAP sensor pin

@@ -8,6 +8,7 @@
   #define READ_SEC_TRIGGER() ((*triggerSec_pin_port & triggerSec_pin_mask) ? true : false)
   #define READ_THIRD_TRIGGER() ((*triggerThird_pin_port & triggerThird_pin_mask) ? true : false)
 #else
+  //用于读取与 pinTrigger 引脚（即曲轴传感器）相关的输入信号。
   #define READ_PRI_TRIGGER() digitalRead(pinTrigger)
   #define READ_SEC_TRIGGER() digitalRead(pinTrigger2)
   #define READ_THIRD_TRIGGER() digitalRead(pinTrigger3)  
