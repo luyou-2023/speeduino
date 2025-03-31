@@ -65,69 +65,119 @@ void initialiseCorrections(void)
   currentStatus.battery10 = 125; //Set battery voltage to sensible value for dwell correction for "flying start" (else ignition gets spurious pulses after boot)  
 }
 
-/** Dispatch calculations for all fuel related corrections.
-Calls all the other corrections functions and combines their results.
-This is the only function that should be called from anywhere outside the file
-*/
+/**
+ * 调度所有与燃油相关的修正计算。
+ * 调用所有其他修正函数，并将它们的结果合并。
+ * 这是唯一一个应该从文件外部调用的函数
+ */
 uint16_t correctionsFuel(void)
 {
-  uint32_t sumCorrections = 100;
-  uint16_t result; //temporary variable to store the result of each corrections function
+  uint32_t sumCorrections = 100;  // 初始化 sumCorrections 为 100，作为所有修正的起始值
+  uint16_t result; // 临时变量，用于存储每个修正函数的结果
 
-  //The values returned by each of the correction functions are multiplied together and then divided back to give a single 0-255 value.
+  // 每个修正函数返回的值将被相乘，然后再除以返回单个 0-255 的值。
+
+  // 应用冷启动富油修正 (WUE)
   currentStatus.wueCorrection = correctionWUE();
-  if (currentStatus.wueCorrection != 100) { sumCorrections = div100(sumCorrections * currentStatus.wueCorrection); }
-
-  currentStatus.ASEValue = correctionASE();
-  if (currentStatus.ASEValue != 100) { sumCorrections = div100(sumCorrections * currentStatus.ASEValue); }
-
-  result = correctionCranking();
-  if (result != 100) { sumCorrections = div100(sumCorrections * result); }
-
-  currentStatus.AEamount = correctionAccel();
-  if ( (configPage2.aeApplyMode == AE_MODE_MULTIPLIER) || BIT_CHECK(currentStatus.engine, BIT_ENGINE_DCC) ) // multiply by the AE amount in case of multiplier AE mode or Decel
-  {
-    if (currentStatus.AEamount != 100) { sumCorrections = div100(sumCorrections * currentStatus.AEamount);}
+  if (currentStatus.wueCorrection != 100) {
+    sumCorrections = div100(sumCorrections * currentStatus.wueCorrection); // 如果修正不为 100，乘以修正值并标准化
   }
 
+  // 应用加速修正 (ASE)
+  currentStatus.ASEValue = correctionASE();
+  if (currentStatus.ASEValue != 100) {
+    sumCorrections = div100(sumCorrections * currentStatus.ASEValue); // 如果修正不为 100，乘以修正值并标准化
+  }
+
+  // 应用启动时修正 (Cranking)
+  result = correctionCranking();
+  if (result != 100) {
+    sumCorrections = div100(sumCorrections * result); // 如果修正不为 100，乘以修正值并标准化
+  }
+
+  // 基于模式或减速条件，应用加速修正 (AE)
+  currentStatus.AEamount = correctionAccel();
+  if ( (configPage2.aeApplyMode == AE_MODE_MULTIPLIER) || BIT_CHECK(currentStatus.engine, BIT_ENGINE_DCC) )
+  {
+    // 在加速模式或减速条件下，乘以 AE 修正值
+    if (currentStatus.AEamount != 100) {
+      sumCorrections = div100(sumCorrections * currentStatus.AEamount);
+    }
+  }
+
+  // 应用清除积碳修正 (Flood Clear)
   result = correctionFloodClear();
-  if (result != 100) { sumCorrections = div100(sumCorrections * result); }
+  if (result != 100) {
+    sumCorrections = div100(sumCorrections * result); // 如果修正不为 100，乘以修正值并标准化
+  }
 
+  // 应用氧传感器闭环修正 (EGO)
   currentStatus.egoCorrection = correctionAFRClosedLoop();
-  if (currentStatus.egoCorrection != 100) { sumCorrections = div100(sumCorrections * currentStatus.egoCorrection); }
+  if (currentStatus.egoCorrection != 100) {
+    sumCorrections = div100(sumCorrections * currentStatus.egoCorrection); // 如果修正不为 100，乘以修正值并标准化
+  }
 
+  // 应用电池电压修正，取决于配置的模式
   currentStatus.batCorrection = correctionBatVoltage();
   if (configPage2.battVCorMode == BATTV_COR_MODE_OPENTIME)
   {
-    inj_opentime_uS = configPage2.injOpen * currentStatus.batCorrection; // Apply voltage correction to injector open time.
-    //currentStatus.batCorrection = 100; // This is to ensure that the correction is not applied twice. There is no battery correction fator as we have instead changed the open time
+    // 如果配置为开放时间模式，使用电压修正来调整喷油器开口时间
+    inj_opentime_uS = configPage2.injOpen * currentStatus.batCorrection;
+    // currentStatus.batCorrection = 100; // 这行代码注释掉是为了确保不应用两次修正。
   }
   if (configPage2.battVCorMode == BATTV_COR_MODE_WHOLE)
   {
-    if (currentStatus.batCorrection != 100) { sumCorrections = div100(sumCorrections * currentStatus.batCorrection); }  
+    if (currentStatus.batCorrection != 100) {
+      sumCorrections = div100(sumCorrections * currentStatus.batCorrection); // 如果修正不为 100，乘以修正值并标准化
+    }
   }
 
+  // 应用进气温度（IAT）修正，基于空气密度
   currentStatus.iatCorrection = correctionIATDensity();
-  if (currentStatus.iatCorrection != 100) { sumCorrections = div100(sumCorrections * currentStatus.iatCorrection); }
+  if (currentStatus.iatCorrection != 100) {
+    sumCorrections = div100(sumCorrections * currentStatus.iatCorrection); // 如果修正不为 100，乘以修正值并标准化
+  }
 
+  // 应用气压（Baro）修正
   currentStatus.baroCorrection = correctionBaro();
-  if (currentStatus.baroCorrection != 100) { sumCorrections = div100(sumCorrections * currentStatus.baroCorrection); }
+  if (currentStatus.baroCorrection != 100) {
+    sumCorrections = div100(sumCorrections * currentStatus.baroCorrection); // 如果修正不为 100，乘以修正值并标准化
+  }
 
+  // 应用燃油类型修正 (FlexFuel)
   currentStatus.flexCorrection = correctionFlex();
-  if (currentStatus.flexCorrection != 100) { sumCorrections = div100(sumCorrections * currentStatus.flexCorrection); }
+  if (currentStatus.flexCorrection != 100) {
+    sumCorrections = div100(sumCorrections * currentStatus.flexCorrection); // 如果修正不为 100，乘以修正值并标准化
+  }
 
+  // 应用燃油温度修正
   currentStatus.fuelTempCorrection = correctionFuelTemp();
-  if (currentStatus.fuelTempCorrection != 100) { sumCorrections = div100(sumCorrections * currentStatus.fuelTempCorrection); }
+  if (currentStatus.fuelTempCorrection != 100) {
+    sumCorrections = div100(sumCorrections * currentStatus.fuelTempCorrection); // 如果修正不为 100，乘以修正值并标准化
+  }
 
+  // 应用启动修正
   currentStatus.launchCorrection = correctionLaunch();
-  if (currentStatus.launchCorrection != 100) { sumCorrections = div100(sumCorrections * currentStatus.launchCorrection); }
+  if (currentStatus.launchCorrection != 100) {
+    sumCorrections = div100(sumCorrections * currentStatus.launchCorrection); // 如果修正不为 100，乘以修正值并标准化
+  }
 
+  // 应用DFCO（减速燃油切断）修正
   bitWrite(currentStatus.status1, BIT_STATUS1_DFCO, correctionDFCO());
   byte dfcoTaperCorrection = correctionDFCOfuel();
-  if (dfcoTaperCorrection == 0) { sumCorrections = 0; }
-  else if (dfcoTaperCorrection != 100) { sumCorrections = div100(sumCorrections * dfcoTaperCorrection); }
+  if (dfcoTaperCorrection == 0) {
+    sumCorrections = 0;  // 如果DFCO修正值为0，直接将sumCorrections设置为0
+  }
+  else if (dfcoTaperCorrection != 100) {
+    sumCorrections = div100(sumCorrections * dfcoTaperCorrection); // 如果修正不为 100，乘以修正值并标准化
+  }
 
-  if(sumCorrections > 1500) { sumCorrections = 1500; } //This is the maximum allowable increase during cranking
+  // 限制修正值的最大值为1500，以防止过大
+  if(sumCorrections > 1500) {
+    sumCorrections = 1500; // 这是启动过程中允许的最大修正增幅
+  }
+
+  // 返回最终修正值，强制转换为 uint16_t 类型
   return (uint16_t)sumCorrections;
 }
 
@@ -524,31 +574,57 @@ byte correctionDFCOfuel(void)
 }
 
 /*
- * Returns true if deceleration fuel cutoff should be on, false if its off
+ * 如果减速燃油切断（DFCO）应该启用，返回 true；否则返回 false。
  */
 bool correctionDFCO(void)
 {
-  bool DFCOValue = false;
+  bool DFCOValue = false;  // 默认 DFCO 值为 false，表示不启用 DFCO
+
+  // 如果 DFCO 在配置中启用了
   if ( configPage2.dfcoEnabled == 1 )
   {
-    if ( BIT_CHECK(currentStatus.status1, BIT_STATUS1_DFCO) == 1 ) 
+    // 检查当前状态的 DFCO 标志是否已经设置
+    if ( BIT_CHECK(currentStatus.status1, BIT_STATUS1_DFCO) == 1 )
     {
-      DFCOValue = ( currentStatus.RPM > ( configPage4.dfcoRPM * 10) ) && ( currentStatus.TPS < configPage4.dfcoTPSThresh ); 
-      if ( DFCOValue == false) { dfcoDelay = 0; }
+      // 如果当前转速大于配置的 DFCO RPM 且油门位置小于 DFCO 阈值，启用 DFCO
+      DFCOValue = ( currentStatus.RPM > ( configPage4.dfcoRPM * 10) ) && ( currentStatus.TPS < configPage4.dfcoTPSThresh );
+
+      // 如果 DFCO 不应启用，则将延迟计数器重置为 0
+      if ( DFCOValue == false) {
+        dfcoDelay = 0;
+      }
     }
-    else 
+    else
     {
-      if ( (currentStatus.TPS < configPage4.dfcoTPSThresh) && (currentStatus.coolant >= (int)(configPage2.dfcoMinCLT - CALIBRATION_TEMPERATURE_OFFSET)) && ( currentStatus.RPM > (unsigned int)( (configPage4.dfcoRPM * 10) + (configPage4.dfcoHyster * 2)) ) )
+      // 如果 DFCO 未启用，检查其他条件是否满足启用 DFCO：
+      // 1. 油门位置小于 DFCO 阈值
+      // 2. 冷却液温度大于等于配置的最低冷却液温度（减去温度偏移）
+      // 3. 转速大于 DFCO RPM 和滞后修正值的和
+      if ( (currentStatus.TPS < configPage4.dfcoTPSThresh) &&
+           (currentStatus.coolant >= (int)(configPage2.dfcoMinCLT - CALIBRATION_TEMPERATURE_OFFSET)) &&
+           ( currentStatus.RPM > (unsigned int)((configPage4.dfcoRPM * 10) + (configPage4.dfcoHyster * 2)) ) )
       {
+        // 如果 DFCO 启动延迟尚未完成
         if( dfcoDelay < configPage2.dfcoDelay )
         {
-          if( BIT_CHECK(LOOP_TIMER, BIT_TIMER_10HZ) ) { dfcoDelay++; }
+          // 每 10Hz 检查一次，递增延迟计数器
+          if( BIT_CHECK(LOOP_TIMER, BIT_TIMER_10HZ) ) {
+            dfcoDelay++;
+          }
         }
-        else { DFCOValue = true; }
+        else {
+          // 延迟完成，启用 DFCO
+          DFCOValue = true;
+        }
       }
-      else { dfcoDelay = 0; } //Prevent future activation right away if previous time wasn't activated
-    } // DFCO active check
-  } // DFCO enabled check
+      else {
+        // 如果上述条件不满足，重置延迟计数器
+        dfcoDelay = 0;
+      }
+    } // DFCO 启用检查结束
+  } // DFCO 启用检查结束
+
+  // 返回当前的 DFCO 启用状态
   return DFCOValue;
 }
 

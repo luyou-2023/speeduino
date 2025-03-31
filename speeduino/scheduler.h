@@ -25,6 +25,32 @@ Each timer can have only 1 callback associated with it at any given time. If you
 the original schedule will be overwritten and not occur.
 
 ## Timer identification
+定时器识别
+    Arduino 定时器用于喷油和点火调度的方式如下：
+
+    定时器 3（调度 1）
+    用于控制以下设备：
+
+    喷油：喷油 1、2、3、4
+
+    点火：点火 7、8
+
+    定时器 4（调度 2）
+    用于控制以下设备：
+
+    喷油：喷油 5、6
+
+    点火：点火 4、5、6
+
+    定时器 5（调度 3）
+    用于控制以下设备：
+
+    喷油：喷油 7、8
+
+    点火：点火 1、2、3
+
+    定时器类型
+    定时器 3、4 和 5 都是 16 位定时器，这意味着它们的计数范围是从 0 到 65536。由于它们是 16 位的，能够提供精确的定时功能，适用于控制喷油和点火等需要精准时序的操作。
 
 Arduino timers usage for injection and ignition schedules:
 - timer3 is used for schedule 1(?) (fuel 1,2,3,4 ign 7,8)

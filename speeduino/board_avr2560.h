@@ -71,14 +71,19 @@
   #define IGN7_COUNTER  TCNT3 //Replaces injector 3
   #define IGN8_COUNTER  TCNT3 //Replaces injector 2
 
-  #define FUEL1_COMPARE OCR3A
-  #define FUEL2_COMPARE OCR3B
-  #define FUEL3_COMPARE OCR3C
-  #define FUEL4_COMPARE OCR4B //Replaces ignition 6
-  #define FUEL5_COMPARE OCR4C //Replaces ignition 5
-  #define FUEL6_COMPARE OCR4A //Replaces ignition 4
-  #define FUEL7_COMPARE OCR5C //Replaces ignition 3
-  #define FUEL8_COMPARE OCR5B //Replaces ignition 2
+  // 将定时器 3 的输出比较寄存器（OCR3A、OCR3B、OCR3C）分别用于燃油喷射的控制
+  #define FUEL1_COMPARE OCR3A // FUEL1 使用 OCR3A 作为比较寄存器，控制燃油喷射 1
+  #define FUEL2_COMPARE OCR3B // FUEL2 使用 OCR3B 作为比较寄存器，控制燃油喷射 2
+  #define FUEL3_COMPARE OCR3C // FUEL3 使用 OCR3C 作为比较寄存器，控制燃油喷射 3
+
+  // 将定时器 4 的输出比较寄存器（OCR4A、OCR4B、OCR4C）用于燃油喷射控制，同时替代点火 6、5 和 4
+  #define FUEL4_COMPARE OCR4B // FUEL4 使用 OCR4B 作为比较寄存器，控制燃油喷射 4，替代点火 6
+  #define FUEL5_COMPARE OCR4C // FUEL5 使用 OCR4C 作为比较寄存器，控制燃油喷射 5，替代点火 5
+  #define FUEL6_COMPARE OCR4A // FUEL6 使用 OCR4A 作为比较寄存器，控制燃油喷射 6，替代点火 4
+
+  // 将定时器 5 的输出比较寄存器（OCR5B、OCR5C）用于燃油喷射控制，同时替代点火 3 和 2
+  #define FUEL7_COMPARE OCR5C // FUEL7 使用 OCR5C 作为比较寄存器，控制燃油喷射 7，替代点火 3
+  #define FUEL8_COMPARE OCR5B // FUEL8 使用 OCR5B 作为比较寄存器，控制燃油喷射 8，替代点火 2
 
   // 定时器输出比较寄存器
   #define IGN1_COMPARE  OCR5A  // 点火控制信号 1 关联到 Timer 5 的通道 A
