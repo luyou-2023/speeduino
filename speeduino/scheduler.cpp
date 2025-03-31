@@ -360,6 +360,17 @@ static inline __attribute__((always_inline)) void fuelScheduleISR(FuelSchedule &
   // 检查当前调度是否为 PENDING（待启动）状态
   if (schedule.Status == PENDING)
   {
+    /**
+              // 配对喷射，同时操作两个喷油器
+              fuelSchedule1.pStartFunction = openInjector1;
+              fuelSchedule1.pEndFunction = closeInjector1;
+              fuelSchedule2.pStartFunction = openInjector2;
+              fuelSchedule2.pEndFunction = closeInjector2;
+              fuelSchedule3.pStartFunction = openInjector3;
+              fuelSchedule3.pEndFunction = closeInjector3;
+              fuelSchedule4.pStartFunction = openInjector4;
+              fuelSchedule4.pEndFunction = closeInjector4;
+    */
     // 调用调度的开始函数，启动该调度
     schedule.pStartFunction();
 
