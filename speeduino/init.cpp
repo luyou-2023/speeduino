@@ -3528,6 +3528,7 @@ void initialiseTriggers(void)
       triggerSetup_non360();
       triggerHandler = triggerPri_DualWheel; //Is identical to the dual wheel decoder, so that is used. Same goes for the secondary below
       triggerSecondaryHandler = triggerSec_DualWheel; //Note the use of the Dual Wheel trigger function here. No point in having the same code in twice.
+      // 3. 赋值获取转速和曲轴角度的函数指针，使用非360度版本
       getRPM = getRPM_non360;
       getCrankAngle = getCrankAngle_non360;
       triggerSetEndTeeth = triggerSetEndTeeth_non360;

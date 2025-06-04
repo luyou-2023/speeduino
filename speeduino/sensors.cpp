@@ -49,35 +49,58 @@ static inline void validateMAP(void);
 #if defined(ANALOG_ISR)
 static volatile uint16_t AnChannel[16];
 
+// ADC 转换完成中断服务程序
 ISR(ADC_vect)
 {
+  // 获取当前 ADC 通道号（ADMUX 低3位表示当前通道号 0~7）
   byte nChannel = (ADMUX & 0x07);
 
+  // 从 ADC 寄存器中读取转换结果（10位）：
+  // 注意：必须先读 ADCL，再读 ADCH！
   byte result_low = ADCL;
   byte result_high = ADCH;
 
+  // 针对不同 AVR 微控制器型号做差异处理
   #if defined(__AVR_ATmega1281__) || defined(__AVR_ATmega2561__)
-    if (nChannel == 7) { ADMUX = 0x40; }
-  #elif defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
-    if( BIT_CHECK(ADCSRB, MUX5) ) { nChannel += 8; }  //8 to 15
-    if(nChannel == 15)
-    {
-      ADMUX = ADMUX_DEFAULT_CONFIG; //channel 0
-      ADCSRB = 0x00; //clear MUX5 bit
-
-      BIT_CLEAR(ADCSRA,ADIE); //Disable interrupt as we're at the end of a full ADC cycle. This will be re-enabled in the main loop
+    // 如果当前是通道7，切换回通道0（复用）
+    if (nChannel == 7) {
+      ADMUX = 0x40;
     }
-    else if (nChannel == 7) //channel 7
+
+  #elif defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+    // 如果 MUX5（高位通道位）被设置，表示当前通道是 8~15，因此加8
+    if (BIT_CHECK(ADCSRB, MUX5)) {
+      nChannel += 8;  // 实际通道编号为 8~15
+    }
+
+    // 如果是最后一个通道（15），完成整轮采样
+    if (nChannel == 15)
     {
-      ADMUX = ADMUX_DEFAULT_CONFIG;
-      ADCSRB = 0x08; //Set MUX5 bit
+      ADMUX = ADMUX_DEFAULT_CONFIG; // 设置为默认通道（通常为0）
+      ADCSRB = 0x00;                // 清除 MUX5，恢复到通道 0~7 区间
+
+      BIT_CLEAR(ADCSRA, ADIE);      // 禁用 ADC 中断（由主循环重新启用）
+    }
+
+    // 如果是通道7，下一步采样通道8，需要开启 MUX5
+    else if (nChannel == 7)
+    {
+      ADMUX = ADMUX_DEFAULT_CONFIG; // 重新设置 ADMUX 到默认状态（例如通道8起始）
+      ADCSRB = 0x08;                // 设置 MUX5，启用高位通道
     }
   #endif
-    else { ADMUX++; }
+    else {
+      // 否则，递增 ADMUX，采样下一个通道
+      ADMUX++;
+    }
 
-  //ADMUX always appears to be one ahead of the actual channel value that is in ADCL/ADCH. Subtract 1 from it to get the correct channel number
-  if(nChannel == 0) { nChannel = 16;} 
-  AnChannel[nChannel-1] = (result_high << 8) | result_low;
+  // ADMUX 通常“超前”设定了下一通道，所以当前通道值需要 -1 修正
+  if (nChannel == 0) {
+    nChannel = 16;  // 特殊情况修正：表示刚采集完的是通道 15
+  }
+
+  // 将本次采样结果存入对应通道的数据数组中
+  AnChannel[nChannel - 1] = (result_high << 8) | result_low;
 }
 #endif
 

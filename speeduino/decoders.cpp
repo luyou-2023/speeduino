@@ -220,6 +220,8 @@ void loggerPrimaryISR(void)
    * 1) 如果主触发器是上升沿（RISING），则检查主触发器当前是否为 HIGH。
    * 2) 如果主触发器是下降沿（FALLING），则检查主触发器当前是否为 LOW。
    * 如果其中任何条件为真，则调用主解码器函数。
+    //用于读取与 pinTrigger 引脚（即曲轴传感器）相关的输入信号。
+     #define READ_PRI_TRIGGER() digitalRead(pinTrigger)
    */
   if( ( (primaryTriggerEdge == RISING) && (READ_PRI_TRIGGER() == HIGH) ) ||
       ( (primaryTriggerEdge == FALLING) && (READ_PRI_TRIGGER() == LOW) ) ||
@@ -368,17 +370,31 @@ static __attribute__((noinline)) bool SetRevolutionTime(uint32_t revTime)
   return false;
 }
 
+/**
+ * @brief 根据两个触发齿#1出现的时间差计算一次完整转动所需时间（单位：微秒），并更新 revolutionTime。
+ *
+ * @param isCamTeeth - 若为 true，说明齿#1 每两圈出现一次（即凸轮轴上的触发器）；若为 false，说明齿#1 每圈出现一次（曲轴触发）。
+ * @return true 表示 revolutionTime 已成功更新，false 表示未更新（数据不足或状态不允许）
+ */
 static bool UpdateRevolutionTimeFromTeeth(bool isCamTeeth) {
+  // 关闭中断，确保读取 toothOneTime 和 toothOneMinusOneTime 的原子性
   noInterrupts();
-  bool updatedRevTime = HasAnySync(currentStatus) 
-    && !IsCranking(currentStatus)
-    && (toothOneMinusOneTime!=UINT32_C(0))
-    && (toothOneTime>toothOneMinusOneTime) 
-    //The time in uS that one revolution would take at current speed (The time tooth 1 was last seen, minus the time it was seen prior to that)
-    && SetRevolutionTime((toothOneTime - toothOneMinusOneTime) >> (isCamTeeth ? 1U : 0U)); 
 
+  // 条件判断是否可以计算 revolutionTime
+  bool updatedRevTime =
+    HasAnySync(currentStatus)               // 当前系统是否已完成同步（比如同步到齿轮模式）
+    && !IsCranking(currentStatus)           // 当前不是起动（cranking）阶段（避免干扰低速计算）
+    && (toothOneMinusOneTime != 0)          // 前一次齿#1时间存在（非 0）
+    && (toothOneTime > toothOneMinusOneTime)// 当前齿#1时间必须晚于上一次，避免计时回绕或错误
+    &&
+    // 根据 isCamTeeth 决定是否要除以 2（因为凸轮轴转速是曲轴的一半）
+    SetRevolutionTime((toothOneTime - toothOneMinusOneTime) >> (isCamTeeth ? 1U : 0U));
+
+  // 重新开启中断
   interrupts();
- return updatedRevTime;  
+
+  // 返回是否更新成功
+  return updatedRevTime;
 }
 
 static inline uint16_t clampRpm(uint16_t rpm) {
@@ -393,18 +409,25 @@ static inline uint16_t RpmFromRevolutionTimeUs(uint32_t revTime) {
   }
 }
 
-/** Compute RPM.
-* As nearly all the decoders use a common method of determining RPM (The time the last full revolution took) A common function is simpler.
-* @param degreesOver - the number of crank degrees between tooth #1s. Some patterns have a tooth #1 every crank rev, others are every cam rev.
-* @return RPM
-*/
+/**
+ * 计算发动机转速（RPM）。
+ * 几乎所有的触发解码器都使用相同的方式来计算 RPM —— 通过测量“上一次完整旋转所花费的时间”。
+ * 因此封装成一个通用函数会更简单、可复用。
+ *
+ * @param isCamTeeth - 布尔值，表示触发器的参考是凸轮轴齿（true）还是曲轴齿（false）。
+ *                     凸轮轴每两圈触发一次，曲轴每圈一次。
+ * @return 当前转速 RPM（每分钟转数，unit: Revolutions Per Minute）
+ */
 static __attribute__((noinline)) uint16_t stdGetRPM(bool isCamTeeth)
 {
-  if (UpdateRevolutionTimeFromTeeth(isCamTeeth)) {
-    return RpmFromRevolutionTimeUs(revolutionTime);
-  }
+    // 如果成功根据当前齿轮数据更新了 revolutionTime（上一次完整转动所耗时间，单位为微秒）
+    if (UpdateRevolutionTimeFromTeeth(isCamTeeth)) {
+        // 使用 revolutionTime 来计算并返回实际转速
+        return RpmFromRevolutionTimeUs(revolutionTime);
+    }
 
-  return currentStatus.RPM;
+    // 如果无法获取最新的 revolutionTime，则返回上次记录的 RPM 值，避免中断等问题导致 RPM 丢失
+    return currentStatus.RPM;
 }
 
 /**
@@ -896,7 +919,7 @@ void triggerSetup_DualWheel(void)
 
 /** 双轮主触发处理函数
  * 该函数用于处理来自曲轴和凸轮轴传感器的触发信号，并根据每个齿的时间间隔计算点火时序。
- * 具体处理了曲轴转动的检测、过滤、革命计数及点火角度的计算。
+ * 具体处理了曲轴转动的检测、过滤、革命计数及点火角度的计算。 triggerHandler
  */
 void triggerPri_DualWheel(void)
 {
@@ -2989,13 +3012,25 @@ void triggerSec_non360(void)
 
 uint16_t getRPM_non360(void)
 {
-  uint16_t tempRPM = 0;
+  uint16_t tempRPM = 0;  // 初始化临时转速变量为0
+
+  // 如果当前状态已同步（hasSync为true）且当前齿数计数不为0（toothCurrentCount != 0）
   if( (currentStatus.hasSync == true) && (toothCurrentCount != 0) )
   {
-    if(currentStatus.RPM < currentStatus.crankRPM) { tempRPM = crankingGetRPM(configPage4.triggerTeeth, CRANK_SPEED); }
-    else { tempRPM = stdGetRPM(CRANK_SPEED); }
+    // 判断当前RPM与曲轴RPM的大小关系
+    if(currentStatus.RPM < currentStatus.crankRPM)
+    {
+      // 低转速（起动时）调用 crankingGetRPM 函数计算转速
+      tempRPM = crankingGetRPM(configPage4.triggerTeeth, CRANK_SPEED);
+    }
+    else
+    {
+      // 高转速时调用 stdGetRPM 函数计算转速
+      tempRPM = stdGetRPM(CRANK_SPEED);
+    }
   }
-  return tempRPM;
+
+  return tempRPM; // 返回计算得到的转速，如果未同步或齿数为0则返回0
 }
 
 int getCrankAngle_non360(void)
