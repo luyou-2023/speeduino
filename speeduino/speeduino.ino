@@ -1582,6 +1582,38 @@ void loop(void)
       if( (maxInjOutputs >= 1) && (currentStatus.PW1 >= inj_opentime_uS) && (BIT_CHECK(fuelChannelsOn, INJ1_CMD_BIT)) )
       {
         // 喷油控制
+        /**
+            1. SET_COMPARE(schedule.compare, ...) 作用
+            这个宏或函数是给定时器比较寄存器赋值，定时器到达该计数值时触发中断，执行调度动作。
+
+            2. adjustCrankAngle 和 _setFuelScheduleRunning 里都调用了 SET_COMPARE
+            adjustCrankAngle 是根据曲轴传感器计算出的当前曲轴角度，动态调整定时器比较值（也就是点火/喷油动作的时机），属于实时调整，适用于发动机运行时。
+
+            _setFuelScheduleRunning 通常是在启动点火、初始化调度时，会将定时器的比较寄存器设置为启动时的比较值（startCompare），这是给定调度一个初始触发时机。
+
+            3. 为什么曲轴传感器和loop都会触发？
+            曲轴传感器中断是发动机角度触发点，收到信号后会重新计算和调整点火喷油的时机（调用 adjustCrankAngle 设置新的比较值）。
+
+            **主循环（loop）**可能会有一些初始化或周期性的逻辑（如 _setFuelScheduleRunning），确保调度状态正确，或者在某些状态下强制重新设置定时器比较值。
+
+            也就是说，曲轴传感器中断负责“动态调节时机”，而loop负责初始化或保持调度状态。
+
+            4. 触发关系总结
+            曲轴传感器信号 → 触发中断 → 重新计算燃油点火时机 → 调用 adjustCrankAngle 更新定时器比较寄存器 → 定时器中断 → 执行点火喷油动作。
+
+            主循环（loop） → 根据发动机状态、启动过程或错误恢复需要 → 调用 _setFuelScheduleRunning 设置起始比较寄存器值 → 定时器中断 → 执行动作。
+
+            5. 为什么两者都需要？
+            曲轴传感器中断保证发动机运转时的精确同步。
+
+            主循环控制保证发动机启动、停止、状态变化时调度能正确配置和恢复。
+
+            如果把发动机点火喷油比作“定时的闹钟”，
+
+            曲轴传感器是动态调整闹钟时间的“手”，
+
+            主循环是保证闹钟能准时启动和持续运行的“保障”。
+        **/
         uint32_t timeOut = calculateInjectorTimeout(fuelSchedule1, channel1InjDegrees, injector1StartAngle, crankAngle);
         if (timeOut>0U)
         {
