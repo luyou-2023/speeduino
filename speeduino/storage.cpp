@@ -346,29 +346,48 @@ void resetConfigPages(void)
 
 //  ================================= Internal read support ===============================
 
-/** Load range of bytes form EEPROM offset to memory.
- * @param address - start offset in EEPROM
- * @param pFirst - Start memory address
- * @param pLast - End memory address
+/**
+ * 从 EEPROM 读取一段连续字节数据到内存
+ *
+ * @param address EEPROM 中读取的起始偏移地址
+ * @param pFirst 目标内存起始地址指针（写入开始位置）
+ * @param pLast 目标内存结束地址指针（写入结束位置，非包含）
+ * @return 返回读取后 EEPROM 的下一个偏移地址
  */
 static inline eeprom_address_t load_range(eeprom_address_t address, byte *pFirst, const byte *pLast)
 {
 #if defined(CORE_AVR)
-  // The generic code in the #else branch works but this provides a 45% speed up on AVR
-  size_t size = pLast-pFirst;
+  // 如果是 AVR 架构，调用 AVR 特有的快速 EEPROM 读取函数
+  // 计算要读取的字节数
+  size_t size = pLast - pFirst;
+  // 从 EEPROM 地址 address 处读取 size 字节，写入 pFirst 指向的内存
   eeprom_read_block(pFirst, (const void*)(size_t)address, size);
-  return address+size;
+  // 返回下一个 EEPROM 地址，即当前地址加上读取长度
+  return address + size;
 #else
+  // 非 AVR 架构使用通用的逐字节读取方法
   for (; pFirst != pLast; ++address, (void)++pFirst)
   {
+    // 读取 EEPROM 中当前地址的字节，写入内存
     *pFirst = EEPROM.read(address);
   }
+  // 返回读取完成后的下一个 EEPROM 地址
   return address;
 #endif
-}
+}、
 
+/**
+ * 从 EEPROM 读取一行数据到内存
+ *
+ * @param row 表行数据的迭代器，指向行的起始位置
+ * @param address EEPROM 读取的起始地址
+ * @return 返回读取后的下一个 EEPROM 地址（偏移）
+ */
 static inline eeprom_address_t load(table_row_iterator row, eeprom_address_t address)
 {
+  // 调用 load_range 从 EEPROM 地址 address 读取数据，
+  // 将数据写入从 row 指向的内存开始，到 row.end() 结束的内存区域
+  // 返回读取完成后的下一个 EEPROM 地址
   return load_range(address, &*row, row.end());
 }
 
@@ -395,11 +414,29 @@ static inline eeprom_address_t load(table_axis_iterator it, eeprom_address_t add
 }
 
 
+/**
+ * 从 EEPROM 中加载表数据到内存结构中
+ *
+ * @param pTable 指向目标表结构的指针
+ * @param key 表的类型标识，区分不同表结构
+ * @param address EEPROM 读取的起始地址
+ * @return 返回读取后新的 EEPROM 地址（偏移）
+ */
 static inline eeprom_address_t loadTable(void *pTable, table_type_t key, eeprom_address_t address)
 {
-  return load(y_rbegin(pTable, key),
-                load(x_begin(pTable, key), 
-                  load(rows_begin(pTable, key), address)));
+  // 递归调用 load 函数依次加载表的行数据、X 轴数据、Y 轴数据
+  // 先加载行数据，返回新的 EEPROM 地址，再以此地址加载 X 轴数据
+  // 最后加载 Y 轴数据，保证完整加载整个表
+  return load(
+      y_rbegin(pTable, key), // 获取表 Y 轴起始位置（可能是倒序）
+      load(
+          x_begin(pTable, key), // 获取表 X 轴起始位置
+          load(
+              rows_begin(pTable, key), // 获取表行数据起始位置
+              address // EEPROM 读取起始地址
+          )
+      )
+  );
 }
 
 //  ================================= End internal read support ===============================
@@ -409,6 +446,7 @@ static inline eeprom_address_t loadTable(void *pTable, table_type_t key, eeprom_
  */
 void loadConfig(void)
 {
+  //调用一个 loadTable 函数来加载 fuelTable 的数据，结合表的类型标识（decltype(fuelTable)::type_key）和 EEPROM 里的配置地址（EEPROM_CONFIG1_MAP）
   loadTable(&fuelTable, decltype(fuelTable)::type_key, EEPROM_CONFIG1_MAP);
   load_range(EEPROM_CONFIG2_START, (byte *)&configPage2, (byte *)&configPage2+sizeof(configPage2));
   

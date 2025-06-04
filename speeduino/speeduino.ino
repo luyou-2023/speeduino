@@ -540,9 +540,13 @@ Speeduino与硬件的集成涉及以下几个步骤：
 
 
 
+//根据给定的燃油负载（fuelLoad）和转速（RPM），查表得到喷油修正比例，然后用该比例修正当前喷油脉宽。
 inline uint16_t applyFuelTrimToPW(trimTable3d *pTrimTable, int16_t fuelLoad, int16_t RPM, uint16_t currentPW)
 {
+    // get3DTableValue(...)：从 3D 修正表中获取一个值，表示某负载和转速下的燃油修正。OFFSET_FUELTRIM：一个常量，一般设为 100，用来让 trim table 中的默认值为 100（即不修正）
+    // 100U + ... - 100 的操作，就是把偏移后的修正值变成百分比：例如，如果表中某点值为 110（表示+10%），那么： 100U + 110 - 100 = 110% → 增加 10%
     uint8_t pw1percent = 100U + get3DTableValue(pTrimTable, fuelLoad, RPM) - OFFSET_FUELTRIM;
+    //percentage(pw1percent, currentPW) 的意思是将当前的喷油脉宽 currentPW 乘以 pw1percent 百分比。 maths.h
     return percentage(pw1percent, currentPW);
 }
 

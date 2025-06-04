@@ -290,48 +290,48 @@ inline const page_iterator_t create_raw_iterator(void *pBuffer, uint8_t pageNum,
 
 // ===============================================================================
 
-// Does the heavy lifting of mapping page+offset to an entity
+// 将页号(pageNumber)和偏移(offset)映射到具体的实体(entity)
+// 这个函数是关键逻辑，负责根据页和偏移找到对应的数据块或表
 //
-// Alternative implementation would be to encode the mapping into data structures
-// That uses flash memory, which is scarce. And it was too slow.
-static inline __attribute__((always_inline)) // <-- this is critical for performance
+// 另一种实现方式是用数据结构直接编码映射关系，但这会占用宝贵的闪存资源且速度较慢
+static inline __attribute__((always_inline)) // 性能关键，强制内联，避免函数调用开销
 page_iterator_t map_page_offset_to_entity(uint8_t pageNumber, uint16_t offset)
 {
-  // The start address of the 1st entity in any page.
+  // 每个页中第一个实体的起始偏移，统一为0
   static constexpr uint16_t ENTITY_START_VAR(0) = 0U;
 
   switch (pageNumber)
   {
     case 0:
-      END_OF_PAGE(0, 0)
+      END_OF_PAGE(0, 0)  // 页0无实体，直接结束
 
-    case veMapPage:
+    case veMapPage:  // VE燃油表页
     {
-      CHECK_TABLE(veMapPage, offset, &fuelTable, 0)
-      END_OF_PAGE(veMapPage, 1)
+      CHECK_TABLE(veMapPage, offset, &fuelTable, 0)  // 检查offset是否属于fuelTable实体范围
+      END_OF_PAGE(veMapPage, 1)                      // 只有1个实体，结束处理
     }
 
-    case ignMapPage: //Ignition settings page (Page 2)
+    case ignMapPage: // 点火参数页（页2）
     {
       CHECK_TABLE(ignMapPage, offset, &ignitionTable, 0)
       END_OF_PAGE(ignMapPage, 1)
     }
 
-    case afrMapPage: //Air/Fuel ratio target settings page
+    case afrMapPage: // 空燃比目标页
     {
       CHECK_TABLE(afrMapPage, offset, &afrTable, 0)
       END_OF_PAGE(afrMapPage, 1)
     }
 
-    case boostvvtPage: //Boost, VVT and staging maps (all 8x8)
+    case boostvvtPage: // 增压、VVT及分阶段表页（3个8x8表）
     {
-      CHECK_TABLE(boostvvtPage, offset, &boostTable, 0)
-      CHECK_TABLE(boostvvtPage, offset, &vvtTable, 1)
-      CHECK_TABLE(boostvvtPage, offset, &stagingTable, 2)
-      END_OF_PAGE(boostvvtPage, 3)
+      CHECK_TABLE(boostvvtPage, offset, &boostTable, 0)    // 增压表
+      CHECK_TABLE(boostvvtPage, offset, &vvtTable, 1)      // VVT表
+      CHECK_TABLE(boostvvtPage, offset, &stagingTable, 2)  // 分阶段表
+      END_OF_PAGE(boostvvtPage, 3)                          // 共3个实体
     }
 
-    case seqFuelPage:
+    case seqFuelPage: // 序列燃油修正页（8个修正表）
     {
       CHECK_TABLE(seqFuelPage, offset, &trim1Table, 0)
       CHECK_TABLE(seqFuelPage, offset, &trim2Table, 1)
@@ -344,63 +344,64 @@ page_iterator_t map_page_offset_to_entity(uint8_t pageNumber, uint16_t offset)
       END_OF_PAGE(seqFuelPage, 8)
     }
 
-    case fuelMap2Page:
+    case fuelMap2Page: // 第二组燃油表页
     {
       CHECK_TABLE(fuelMap2Page, offset, &fuelTable2, 0)
       END_OF_PAGE(fuelMap2Page, 1)
     }
 
-    case wmiMapPage:
+    case wmiMapPage: // 水甲醇注入相关页
     {
       CHECK_TABLE(wmiMapPage, offset, &wmiTable, 0)
       CHECK_TABLE(wmiMapPage, offset, &vvt2Table, 1)
       CHECK_TABLE(wmiMapPage, offset, &dwellTable, 2)
       END_OF_PAGE(wmiMapPage, 3)
     }
-    
-    case ignMap2Page:
+
+    case ignMap2Page: // 第二组点火表页
     {
       CHECK_TABLE(ignMap2Page, offset, &ignitionTable2, 0)
       END_OF_PAGE(ignMap2Page, 1)
     }
 
-    case veSetPage: 
+    // 以下为非表格配置页，直接通过偏移和大小判断实体范围
+    case veSetPage:
     {
       CHECK_RAW(veSetPage, offset, &configPage2, sizeof(configPage2), 0)
       END_OF_PAGE(veSetPage, 1)
     }
 
-    case ignSetPage: 
+    case ignSetPage:
     {
       CHECK_RAW(ignSetPage, offset, &configPage4, sizeof(configPage4), 0)
       END_OF_PAGE(ignSetPage, 1)
     }
-    
-    case afrSetPage: 
+
+    case afrSetPage:
     {
       CHECK_RAW(afrSetPage, offset, &configPage6, sizeof(configPage6), 0)
       END_OF_PAGE(afrSetPage, 1)
     }
 
-    case canbusPage:  
+    case canbusPage:
     {
       CHECK_RAW(canbusPage, offset, &configPage9, sizeof(configPage9), 0)
       END_OF_PAGE(canbusPage, 1)
     }
 
-    case warmupPage: 
+    case warmupPage:
     {
       CHECK_RAW(warmupPage, offset, &configPage10, sizeof(configPage10), 0)
       END_OF_PAGE(warmupPage, 1)
     }
 
-    case progOutsPage: 
+    case progOutsPage:
     {
       CHECK_RAW(progOutsPage, offset, &configPage13, sizeof(configPage13), 0)
       END_OF_PAGE(progOutsPage, 1)
     }
 
-    case boostvvtPage2: //Boost, VVT and staging maps (all 8x8)
+    case boostvvtPage2: // 增压、VVT第二组映射页
     {
       CHECK_TABLE(boostvvtPage2, offset, &boostTableLookupDuty, 0)
       CHECK_RAW(boostvvtPage2, offset, &configPage15, sizeof(configPage15), 1)
@@ -408,7 +409,7 @@ page_iterator_t map_page_offset_to_entity(uint8_t pageNumber, uint16_t offset)
     }
 
     default:
-      abort(); // Unknown page number. Not a lot we can do.
+      abort(); // 未知页码，无法处理，终止程序
       break;
   }
 }

@@ -145,11 +145,11 @@ void initialiseAll(void)
      */
     // 示例：节气门加速补偿表
     //Repoint the 2D table structs to the config pages that were just loaded
-    taeTable.valueSize = SIZE_BYTE; //Set this table to use byte values  // 表值为字节类型
-    taeTable.axisSize = SIZE_BYTE; //Set this table to use byte axis bins  // 轴值为字节类型
-    taeTable.xSize = 4;  // X轴4个元素
-    taeTable.values = configPage4.taeValues; // 值数组指针
-    taeTable.axisX = configPage4.taeBins;  // 轴数组指针
+    taeTable.valueSize = SIZE_BYTE;           // 表中每个数据点的大小为1字节（byte）
+    taeTable.axisSize = SIZE_BYTE;            // 轴上的每个刻度值大小为1字节
+    taeTable.xSize = 4;                       // X轴上有4个刻度点
+    taeTable.values = configPage4.taeValues; // 指向具体存储表格值的数组
+    taeTable.axisX = configPage4.taeBins;    // 指向存储X轴刻度的数组
     maeTable.valueSize = SIZE_BYTE; //Set this table to use byte values
     maeTable.axisSize = SIZE_BYTE; //Set this table to use byte axis bins
     maeTable.xSize = 4;

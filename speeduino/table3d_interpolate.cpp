@@ -149,6 +149,7 @@ static inline QU1X8_t compute_bin_position(table3d_axis_t value, const table3d_d
 
 //This function pulls a value from a 3D table given a target for X and Y coordinates.
 //It performs a 2D linear interpolation as described in: www.megamanual.com/v22manual/ve_tuner.pdf
+//根据当前的 X（如负载）、Y（如转速）坐标，在 3D 表中做双线性插值（bilinear interpolation），返回平滑过渡的值。
 table3d_value_t __attribute__((noclone)) get3DTableValue(struct table3DGetValueCache *pValueCache, 
                     table3d_dim_t axisSize,
                     const table3d_value_t *pValues,
