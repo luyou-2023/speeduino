@@ -484,49 +484,69 @@ static __attribute__((noinline)) int crankingGetRPM(byte totalTeeth, bool isCamT
 }
 
 /**
-On decoders that are enabled for per tooth based timing adjustments, this function performs the timer compare changes on the schedules themselves
-For each ignition channel, a check is made whether we're at the relevant tooth and whether that ignition schedule is currently running
-Only if both these conditions are met will the schedule be updated with the latest timing information.
-If it's the correct tooth, but the schedule is not yet started, calculate and an end compare value (This situation occurs when both the start and end of the ignition pulse happen after the end tooth, but before the next tooth)
-*/
+ * 针对启用了基于每齿调整点火时机的解码器，这个函数会在点火定时表上执行定时器比较值的更新。
+ *
+ * 对于每个点火通道，会检查当前是否到达该通道对应的齿数，并且该点火计划是否正在运行。
+ * 只有当这两个条件都满足时，才会用最新的时机信息更新点火计划。
+ *
+ * 如果当前齿数是目标齿数，但该点火计划尚未启动，
+ * 则计算一个结束比较值（这种情况发生在点火脉冲的开始和结束都在目标齿之后但下一个齿之前）。
+ *
+ * @param crankAngle 当前曲轴角度（度数或定制单位）
+ * @param currentTooth 当前齿计数
+ */
 static inline void checkPerToothTiming(int16_t crankAngle, uint16_t currentTooth)
 {
+  // 如果没有强制启动覆盖且发动机转速大于0
   if ( (fixedCrankingOverride == 0) && (currentStatus.RPM > 0) )
   {
+    // 判断当前齿是否匹配第1个点火通道的结束齿
     if ( (currentTooth == ignition1EndTooth) )
     {
+      // 调整第1个点火通道的角度 函数的作用是根据当前曲轴角度调整点火调度的计时比较值
       adjustCrankAngle(ignitionSchedule1, ignition1EndAngle, crankAngle);
     }
+    // 判断当前齿是否匹配第2个点火通道的结束齿
     else if ( (currentTooth == ignition2EndTooth) )
     {
       adjustCrankAngle(ignitionSchedule2, ignition2EndAngle, crankAngle);
     }
+    // 判断当前齿是否匹配第3个点火通道的结束齿
     else if ( (currentTooth == ignition3EndTooth) )
     {
       adjustCrankAngle(ignitionSchedule3, ignition3EndAngle, crankAngle);
     }
+    // 判断当前齿是否匹配第4个点火通道的结束齿
     else if ( (currentTooth == ignition4EndTooth) )
     {
       adjustCrankAngle(ignitionSchedule4, ignition4EndAngle, crankAngle);
     }
+
+    // 如果点火通道数大于等于5，则判断第5个点火通道
 #if IGN_CHANNELS >= 5
     else if ( (currentTooth == ignition5EndTooth) )
     {
       adjustCrankAngle(ignitionSchedule5, ignition5EndAngle, crankAngle);
     }
 #endif
+
+    // 如果点火通道数大于等于6，则判断第6个点火通道
 #if IGN_CHANNELS >= 6
     else if ( (currentTooth == ignition6EndTooth) )
     {
       adjustCrankAngle(ignitionSchedule6, ignition6EndAngle, crankAngle);
     }
 #endif
+
+    // 如果点火通道数大于等于7，则判断第7个点火通道
 #if IGN_CHANNELS >= 7
     else if ( (currentTooth == ignition7EndTooth) )
     {
       adjustCrankAngle(ignitionSchedule7, ignition7EndAngle, crankAngle);
     }
 #endif
+
+    // 如果点火通道数大于等于8，则判断第8个点火通道
 #if IGN_CHANNELS >= 8
     else if ( (currentTooth == ignition8EndTooth) )
     {
@@ -535,6 +555,7 @@ static inline void checkPerToothTiming(int16_t crankAngle, uint16_t currentTooth
 #endif
   }
 }
+
 /** @} */
   
 /** A (single) multi-tooth wheel with one of more 'missing' teeth.
@@ -582,122 +603,163 @@ void triggerSetup_missingTooth(void)
 
 void triggerPri_missingTooth(void)
 {
-   curTime = micros();
-   curGap = curTime - toothLastToothTime;
-   if ( curGap >= triggerFilterTime ) //Pulses should never be less than triggerFilterTime, so if they are it means a false trigger. (A 36-1 wheel at 8000pm will have triggers approx. every 200uS)
-   {
-     toothCurrentCount++; //Increment the tooth counter
-     BIT_SET(decoderState, BIT_DECODER_VALID_TRIGGER); //Flag this pulse as being a valid trigger (ie that it passed filters)
+   curTime = micros(); // 读取当前微秒时间戳
+   curGap = curTime - toothLastToothTime; // 计算当前齿与上一个齿之间的时间间隔
 
-     //if(toothCurrentCount > checkSyncToothCount || currentStatus.hasSync == false)
-      if( (toothLastToothTime > 0) && (toothLastMinusOneToothTime > 0) )
-      {
-        bool isMissingTooth = false;
+   // 过滤伪脉冲：如果时间间隔小于滤波时间，说明可能是噪声或错误触发，忽略
+   if ( curGap >= triggerFilterTime )
+   {
+     toothCurrentCount++; // 有效齿计数加1
+     BIT_SET(decoderState, BIT_DECODER_VALID_TRIGGER); // 标记这是有效的触发脉冲
+
+     // 如果之前有记录至少两个有效齿的时间（用来检测缺齿）
+     if( (toothLastToothTime > 0) && (toothLastMinusOneToothTime > 0) )
+     {
+        bool isMissingTooth = false; // 标记是否检测到缺齿
 
         /*
-        Performance Optimisation:
-        Only need to try and detect the missing tooth if:
-        1. WE don't have sync yet
-        2. We have sync and are in the final 1/4 of the wheel (Missing tooth will/should never occur in the first 3/4)
-        3. RPM is under 2000. This is to ensure that we don't interfere with strange timing when cranking or idling. Optimisation not really required at these speeds anyway
+          性能优化：
+          只有满足以下条件之一时，才检测缺齿：
+          1. 还没同步上（hasSync==false）
+          2. 已同步且当前齿数进入轮子最后1/4（缺齿只会出现在最后1/4）
+          3. 转速低于2000 RPM（避免怠速或启动时信号异常影响）
         */
         if( (currentStatus.hasSync == false) || (currentStatus.RPM < 2000) || (toothCurrentCount >= (3 * triggerActualTeeth >> 2)) )
         {
-          //Begin the missing tooth detection
-          //If the time between the current tooth and the last is greater than 1.5x the time between the last tooth and the tooth before that, we make the assertion that we must be at the first tooth after the gap
-          if(configPage4.triggerMissingTeeth == 1) { targetGap = (3 * (toothLastToothTime - toothLastMinusOneToothTime)) >> 1; } //Multiply by 1.5 (Checks for a gap 1.5x greater than the last one) (Uses bitshift to multiply by 3 then divide by 2. Much faster than multiplying by 1.5)
-          else { targetGap = ((toothLastToothTime - toothLastMinusOneToothTime)) * configPage4.triggerMissingTeeth; } //Multiply by 2 (Checks for a gap 2x greater than the last one)
+          // 计算判定缺齿的阈值时间间隔
+          if(configPage4.triggerMissingTeeth == 1)
+          {
+            // 1.5倍的正常齿间间隔（用位运算加速乘法）
+            targetGap = (3 * (toothLastToothTime - toothLastMinusOneToothTime)) >> 1;
+          }
+          else
+          {
+            // 乘以配置的缺齿倍数（一般为2倍）
+            targetGap = ((toothLastToothTime - toothLastMinusOneToothTime)) * configPage4.triggerMissingTeeth;
+          }
 
+          // 防止初始0值导致计算异常
           if( (toothLastToothTime == 0) || (toothLastMinusOneToothTime == 0) ) { curGap = 0; }
 
+          // 判断当前间隔是否超过阈值，或者当前齿数超过预期齿数（说明一圈已结束）
           if ( (curGap > targetGap) || (toothCurrentCount > triggerActualTeeth) )
           {
-            //Missing tooth detected
+            // 确认检测到缺齿
             isMissingTooth = true;
-            if( (toothCurrentCount < triggerActualTeeth) && (currentStatus.hasSync == true) ) 
-            { 
-                //This occurs when we're at tooth #1, but haven't seen all the other teeth. This indicates a signal issue so we flag lost sync so this will attempt to resync on the next revolution.
-                currentStatus.hasSync = false;
-                BIT_CLEAR(currentStatus.status3, BIT_STATUS3_HALFSYNC); //No sync at all, so also clear HalfSync bit.
-                currentStatus.syncLossCounter++;
+
+            // 如果缺齿发生时齿数未达到总齿数，且之前已同步，说明同步丢失，需重新同步
+            if( (toothCurrentCount < triggerActualTeeth) && (currentStatus.hasSync == true) )
+            {
+                currentStatus.hasSync = false; // 失去同步
+                BIT_CLEAR(currentStatus.status3, BIT_STATUS3_HALFSYNC); // 同时清除半同步标志
+                currentStatus.syncLossCounter++; // 同步丢失计数器+1
             }
-            //This is to handle a special case on startup where sync can be obtained and the system immediately thinks the revs have jumped:
-            //else if (currentStatus.hasSync == false && toothCurrentCount < checkSyncToothCount ) { triggerFilterTime = 0; }
             else
             {
+                // 处理启动时的同步状态维护
                 if((currentStatus.hasSync == true) || BIT_CHECK(currentStatus.status3, BIT_STATUS3_HALFSYNC))
                 {
-                  currentStatus.startRevolutions++; //Counter
-                  if ( configPage4.TrigSpeed == CAM_SPEED ) { currentStatus.startRevolutions++; } //Add an extra revolution count if we're running at cam speed
+                  currentStatus.startRevolutions++; // 转速启动计数增加
+                  if ( configPage4.TrigSpeed == CAM_SPEED ) { currentStatus.startRevolutions++; } // 如果是凸轮速，计数翻倍
                 }
-                else { currentStatus.startRevolutions = 0; }
-                
-                toothCurrentCount = 1;
-                if (configPage4.trigPatternSec == SEC_TRIGGER_POLL) // at tooth one check if the cam sensor is high or low in poll level mode
+                else
+                {
+                  currentStatus.startRevolutions = 0; // 否则重置启动计数
+                }
+
+                toothCurrentCount = 1; // 缺齿后重置齿数计数，从1开始
+
+                // 如果次级触发模式是轮询模式，根据极性确定第一圈状态
+                if (configPage4.trigPatternSec == SEC_TRIGGER_POLL)
                 {
                   if (configPage4.PollLevelPolarity == READ_SEC_TRIGGER()) { revolutionOne = 1; }
                   else { revolutionOne = 0; }
                 }
-                else {revolutionOne = !revolutionOne;} //Flip sequential revolution tracker if poll level is not used
+                else
+                {
+                  revolutionOne = !revolutionOne; // 非轮询模式则翻转标志表示转动一圈
+                }
+
+                // 记录第一齿的时间，维护时间戳
                 toothOneMinusOneTime = toothOneTime;
                 toothOneTime = curTime;
 
-                //if Sequential fuel or ignition is in use, further checks are needed before determining sync
+                // 顺序点火或喷油模式下需额外判断同步
                 if( (configPage4.sparkMode == IGN_MODE_SEQUENTIAL) || (configPage2.injLayout == INJ_SEQUENTIAL) )
                 {
-                  //If either fuel or ignition is sequential, only declare sync if the cam tooth has been seen OR if the missing wheel is on the cam
+                  // 有次级齿或是凸轮速，或者轮询模式或者两冲程，标记同步
                   if( (secondaryToothCount > 0) || (configPage4.TrigSpeed == CAM_SPEED) || (configPage4.trigPatternSec == SEC_TRIGGER_POLL) || (configPage2.strokes == TWO_STROKE) )
                   {
                     currentStatus.hasSync = true;
-                    BIT_CLEAR(currentStatus.status3, BIT_STATUS3_HALFSYNC); //the engine is fully synced so clear the Half Sync bit                    
+                    BIT_CLEAR(currentStatus.status3, BIT_STATUS3_HALFSYNC); // 清除半同步
                   }
-                  else if(currentStatus.hasSync != true) { BIT_SET(currentStatus.status3, BIT_STATUS3_HALFSYNC); } //If there is primary trigger but no secondary we only have half sync.
+                  else if(currentStatus.hasSync != true)
+                  {
+                    BIT_SET(currentStatus.status3, BIT_STATUS3_HALFSYNC); // 只同步主触发，半同步标志置位
+                  }
                 }
-                else { currentStatus.hasSync = true;  BIT_CLEAR(currentStatus.status3, BIT_STATUS3_HALFSYNC); } //If nothing is using sequential, we have sync and also clear half sync bit
-                if(configPage4.trigPatternSec == SEC_TRIGGER_SINGLE || configPage4.trigPatternSec == SEC_TRIGGER_TOYOTA_3) //Reset the secondary tooth counter to prevent it overflowing, done outside of sequental as v6 & v8 engines could be batch firing with VVT that needs the cam resetting
-                { 
-                  secondaryToothCount = 0; 
-                } 
+                else
+                {
+                  currentStatus.hasSync = true; // 非顺序点火，直接标记同步
+                  BIT_CLEAR(currentStatus.status3, BIT_STATUS3_HALFSYNC);
+                }
 
-                triggerFilterTime = 0; //This is used to prevent a condition where serious intermittent signals (Eg someone furiously plugging the sensor wire in and out) can leave the filter in an unrecoverable state
+                // 对于某些次级触发类型，重置次级齿计数，防止溢出
+                if(configPage4.trigPatternSec == SEC_TRIGGER_SINGLE || configPage4.trigPatternSec == SEC_TRIGGER_TOYOTA_3)
+                {
+                  secondaryToothCount = 0;
+                }
+
+                triggerFilterTime = 0; // 重置滤波时间，避免异常信号卡死
+                // 更新时间戳
                 toothLastMinusOneToothTime = toothLastToothTime;
                 toothLastToothTime = curTime;
-                BIT_CLEAR(decoderState, BIT_DECODER_TOOTH_ANG_CORRECT); //The tooth angle is double at this point
+
+                BIT_CLEAR(decoderState, BIT_DECODER_TOOTH_ANG_CORRECT); // 清除齿角校正标志，表示需要重新计算角度
             }
           }
         }
-        
+
         if(isMissingTooth == false)
         {
-          //Regular (non-missing) tooth
-          setFilter(curGap);
+          // 普通有效齿处理流程
+          setFilter(curGap); // 根据当前间隔设置滤波时间
+          // 更新时间戳，为下次判断做准备
           toothLastMinusOneToothTime = toothLastToothTime;
           toothLastToothTime = curTime;
-          BIT_SET(decoderState, BIT_DECODER_TOOTH_ANG_CORRECT);
+          BIT_SET(decoderState, BIT_DECODER_TOOTH_ANG_CORRECT); // 设置齿角校正标志，角度正常
         }
       }
       else
       {
-        //We fall here on initial startup when enough teeth have not yet been seen
+        // 初始化阶段，没有足够数据判断缺齿，更新时间戳
         toothLastMinusOneToothTime = toothLastToothTime;
         toothLastToothTime = curTime;
       }
-     
 
-      //NEW IGNITION MODE
-      if( (configPage2.perToothIgn == true) && (!BIT_CHECK(currentStatus.engine, BIT_ENGINE_CRANK)) ) 
+      // 点火模式相关处理
+      if( (configPage2.perToothIgn == true) && (!BIT_CHECK(currentStatus.engine, BIT_ENGINE_CRANK)) )
       {
+        // 计算当前齿对应的曲轴角度
         int16_t crankAngle = ( (toothCurrentCount-1) * triggerToothAngle ) + configPage4.triggerAngle;
+
         if( (configPage4.sparkMode == IGN_MODE_SEQUENTIAL) && (revolutionOne == true) && (configPage4.TrigSpeed == CRANK_SPEED) && (configPage2.strokes == FOUR_STROKE) )
         {
+          // 如果是顺序点火，且是第一圈，且四冲程，曲轴角度加360度
           crankAngle += 360;
-          crankAngle = ignitionLimits(crankAngle);
-          checkPerToothTiming(crankAngle, (configPage4.triggerTeeth + toothCurrentCount)); 
+          crankAngle = ignitionLimits(crankAngle); // 限制角度范围
+          checkPerToothTiming(crankAngle, (configPage4.triggerTeeth + toothCurrentCount)); // 校验点火时机
         }
-        else{ crankAngle = ignitionLimits(crankAngle); checkPerToothTiming(crankAngle, toothCurrentCount); }
+        else
+        {
+          //计算曲轴角度（crankAngle），然后做点火或喷油的时机判断。
+          crankAngle = ignitionLimits(crankAngle);
+          checkPerToothTiming(crankAngle, toothCurrentCount);
+        }
       }
    }
 }
+
 
 void triggerSec_missingTooth(void)
 {

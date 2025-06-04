@@ -203,15 +203,58 @@ static inline uint32_t calculateIgnitionTimeout(const IgnitionSchedule &schedule
  通过 angleToTimeMicroSecPerDegree 将角度转换为时间（微秒）。
 
  计算出新的点火触发时间，并用 SET_COMPARE 更新定时器。
+
+ 简单流程总结：
+ 代码计算出“点火”或“喷油”要触发的准确时间（以定时器计数值表示）。
+
+ 使用 SET_COMPARE(schedule.compare, ...) 把这个时间写入定时器的比较寄存器。
+
+ 定时器计数器计数到这个比较值时，硬件触发定时器比较中断。
+
+ CPU 进入对应的 ISR（比如 TIMER3_COMPA_vect 或 fuelSchedule1Interrupt）。
+
+ ISR 里调用调度处理函数（比如 fuelScheduleISR），执行具体的点火或喷油动作。
+
+ // Timer3A (燃油调度1) 比较向量
+ #if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__) || defined(__AVR_ATmega2561__) // AVR芯片使用ISR
+ // 这是为燃油调度1和5设置的定时器比较中断服务程序
+ ISR(TIMER3_COMPA_vect) // cppcheck-suppress misra-c2012-8.2
+ #else
+ // 对于大多数ARM芯片，可以简单调用一个函数来处理定时器中断
+ void fuelSchedule1Interrupt() // 处理燃油调度1的中断
+ #endif
+ {
+     // 调用共享的定时器ISR处理函数
+     fuelScheduleISR(fuelSchedule1);
+ }
  */
 inline void adjustCrankAngle(IgnitionSchedule &schedule, int endAngle, int crankAngle) {
-    if (schedule.Status == RUNNING) {  // 如果当前点火调度的状态为运行中
-        // 计算角度差，转换为时间，并设置比较值
-        SET_COMPARE(schedule.compare, schedule.counter + uS_TO_TIMER_COMPARE( angleToTimeMicroSecPerDegree( ignitionLimits( (endAngle - crankAngle) ) ) ));
+    // 如果点火调度状态为运行中
+    if (schedule.Status == RUNNING) {
+        // 计算目标角度与当前曲轴角度的差值（endAngle - crankAngle），
+        // 并通过 ignitionLimits 限制角度范围，
+        // 将该角度差转换为对应的微秒时间，
+        // 再转换为定时器比较值，
+        // 最后设置到调度的比较寄存器(schedule.compare)，
+        // 这样硬件定时器可以在正确的时间点触发事件。
+        SET_COMPARE(schedule.compare, schedule.counter +
+            uS_TO_TIMER_COMPARE(
+                angleToTimeMicroSecPerDegree(
+                    ignitionLimits((endAngle - crankAngle))
+                )
+            )
+        );
     }
-    else if (currentStatus.startRevolutions > MIN_CYCLES_FOR_ENDCOMPARE) {  // 如果已经进行了一定数量的革命，确保比较值被正确设置
-        // 计算角度差，转换为时间，并设置结束比较值
-        schedule.endCompare = schedule.counter + uS_TO_TIMER_COMPARE( angleToTimeMicroSecPerDegree( ignitionLimits( (endAngle - crankAngle) ) ) );
-        schedule.endScheduleSetByDecoder = true;  // 标记该比较值是由解码器设置的
+    // 如果点火调度还未运行，但已经经过了一定数量的曲轴转数（startRevolutions大于阈值）
+    else if (currentStatus.startRevolutions > MIN_CYCLES_FOR_ENDCOMPARE) {
+        // 计算目标角度与当前曲轴角度的差值对应的时间，设置为调度的结束比较值(schedule.endCompare)
+        schedule.endCompare = schedule.counter +
+            uS_TO_TIMER_COMPARE(
+                angleToTimeMicroSecPerDegree(
+                    ignitionLimits((endAngle - crankAngle))
+                )
+            );
+        // 标记该结束比较值是由解码器设置的，方便后续处理
+        schedule.endScheduleSetByDecoder = true;
     }
 }

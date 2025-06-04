@@ -3342,6 +3342,45 @@ void initialiseTriggers(void)
       else { tertiaryTriggerEdge = FALLING; }
 
       //绑定外部中断到 x 号引脚
+      /**
+          含义是：
+
+          triggerInterrupt：这是和 pinTrigger 对应的中断编号（比如 Mega2560 上 pin 2 是中断 0）。
+
+          triggerHandler：这是一个函数指针，它指向当前所用解码器的主触发处理函数，比如：
+
+          triggerPri_missingTooth
+
+          triggerPri_60_2
+
+          其他根据 configPage4.TrigPattern 选择的函数
+
+          primaryTriggerEdge：中断触发的边沿类型（上升沿、下降沿或双边沿），取决于你的触发器传感器信号特性。
+
+          ✅ 为什么这是“核心”？
+          1. 这是发动机触发信号采集的入口
+          发动机曲轴或凸轮轴的传感器信号就是通过这个 attachInterrupt 注册的中断触发处理器。
+
+          只要发动机转动，牙盘信号来：
+
+          Arduino 就立即跳到 triggerHandler 所指向的函数去运行。
+
+          然后该函数会更新发动机角度、转速等信息。
+
+          2. 切换解码器只需要换这个指针
+          不同的触发轮（如 36-1、60-2、双通道）使用不同的解码函数，代码通过 triggerHandler = xxx 动态赋值，灵活切换触发器解码逻辑，而不需要改 attachInterrupt 的位置。
+
+          3. loggerPrimaryISR 是替代品
+          当你启用“触发记录”（例如使用 H 命令）时，代码会：
+
+          cpp
+          复制
+          编辑
+          attachInterrupt(triggerInterrupt, loggerPrimaryISR, CHANGE);
+          这会临时“覆盖”正常运行时的 triggerHandler，改成 loggerPrimaryISR 做调试/记录。
+
+          处理曲轴信号 计算rpm
+      **/
       attachInterrupt(triggerInterrupt, triggerHandler, primaryTriggerEdge);
 
       if(BIT_CHECK(decoderState, BIT_DECODER_HAS_SECONDARY)) { attachInterrupt(triggerInterrupt2, triggerSecondaryHandler, secondaryTriggerEdge); }
