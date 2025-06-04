@@ -206,6 +206,21 @@ static inline void addToothLogEntry(unsigned long toothTime, byte whichTooth)
 /**
  * 主触发器的中断处理程序。
  * 当主触发器的上升沿或下降沿触发时，如果复合触发器或齿轮记录器被启用，都会调用该函数。
+ 主触发器（一般为曲轴）接入 ECU 某个 GPIO 引脚
+
+ 该引脚使用 attachInterrupt() 绑定 loggerPrimaryISR
+
+ 每次发生变化（上升沿/下降沿），都进这个 ISR
+
+ ISR 里调用 triggerHandler() 来进行：
+
+ 时间戳记录
+
+ 齿序编号
+
+ 同步判断
+
+ 调度喷油/点火任务等
  */
 void loggerPrimaryISR(void)
 {
@@ -2282,36 +2297,45 @@ uint16_t getRPM_Audi135(void)
    return stdGetRPM(CRANK_SPEED);
 }
 
+// 获取当前曲轴角度 (Audi 135齿轮方案)
+// 角度单位：度，范围是0~720度（表示两转）
 int getCrankAngle_Audi135(void)
 {
-    //This is the current angle ATDC the engine is at. This is the last known position based on what tooth was last 'seen'. It is only accurate to the resolution of the trigger wheel (Eg 36-1 is 10 degrees)
-    unsigned long tempToothLastToothTime;
-    int tempToothCurrentCount;
-    bool tempRevolutionOne;
-    //Grab some variables that are used in the trigger code and assign them to temp variables.
+    // 临时变量，用于存储传感器相关数据，避免中断过程中数据变化导致错误
+    unsigned long tempToothLastToothTime;   // 上一个齿被传感器检测到的时间戳（微秒）
+    int tempToothCurrentCount;               // 当前检测到的齿编号（1~45）
+    bool tempRevolutionOne;                  // 是否为第1圈旋转的标志
+
+    // 关闭中断，读取全局变量，防止中断导致数据不一致
     noInterrupts();
-    tempToothCurrentCount = toothCurrentCount;
-    tempToothLastToothTime = toothLastToothTime;
-    tempRevolutionOne = revolutionOne;
-    lastCrankAngleCalc = micros(); //micros() is no longer interrupt safe
+    tempToothCurrentCount = toothCurrentCount;         // 由曲轴传感器中断更新，表示当前检测到的齿编号
+    tempToothLastToothTime = toothLastToothTime;       // 由曲轴传感器中断更新，上一个齿信号的时间戳
+    tempRevolutionOne = revolutionOne;                 // 曲轴传感器逻辑判断的是否为第一转标志
+    lastCrankAngleCalc = micros();                      // 记录当前计算时间，micros()不可中断安全
     interrupts();
 
-    //Handle case where the secondary tooth was the last one seen
+    // 特殊处理：如果当前齿号是0，说明实际上是第45齿（最后一个齿），进行修正
     if(tempToothCurrentCount == 0) { tempToothCurrentCount = 45; }
 
-    int crankAngle = ((tempToothCurrentCount - 1) * triggerToothAngle) + configPage4.triggerAngle; //Number of teeth that have passed since tooth 1, multiplied by the angle each tooth represents, plus the angle that tooth 1 is ATDC. This gives accuracy only to the nearest tooth.
-    
-    //Estimate the number of degrees travelled since the last tooth}
-    elapsedTime = (lastCrankAngleCalc - tempToothLastToothTime);
+    // 基础角度计算：
+    // 以当前检测的齿编号-1乘以每齿对应的角度(triggerToothAngle)
+    // 加上触发轮第1齿相对于曲轴顶点死点的偏移角(configPage4.triggerAngle)
+    int crankAngle = ((tempToothCurrentCount - 1) * triggerToothAngle) + configPage4.triggerAngle;
+
+    // 计算自上次检测齿信号以来的时间差（微秒）
+    unsigned long elapsedTime = (lastCrankAngleCalc - tempToothLastToothTime);
+
+    // 利用时间差估算曲轴在当前齿间的旋转角度细分
     crankAngle += timeToAngleDegPerMicroSec(elapsedTime);
 
-    //Sequential check (simply sets whether we're on the first or 2nd revolution of the cycle)
-    if (tempRevolutionOne) { crankAngle += 360; }
+    // 根据是否为第1圈，调整曲轴角度范围，完成两转周期内的角度换算
+    if (tempRevolutionOne) { crankAngle += 360; }    // 第一转加360度，形成0~720度范围
 
+    // 防止角度溢出，确保角度始终在0~720度之间
     if (crankAngle >= 720) { crankAngle -= 720; }
     if (crankAngle < 0) { crankAngle += CRANK_ANGLE_MAX; }
 
-    return crankAngle;
+    return crankAngle;  // 返回当前估算的曲轴角度
 }
 
 void triggerSetEndTeeth_Audi135(void)

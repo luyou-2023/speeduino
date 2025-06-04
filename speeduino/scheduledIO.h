@@ -181,6 +181,22 @@ void tachoOutputOff(void);
 //Macros are used to define how each injector control system functions. These are then called by the master openInjectx() function.
 //The DIRECT macros (ie individual pins) are defined below. Others should be defined in their relevant acc_x.h file
 //*injX_pin_port |= (injX_pin_mask)：设置对应喷油器的引脚为高电平（开），通过对寄存器进行位操作。 BIT_SET(currentStatus.status1, BIT_STATUS1_INJ1);
+/**
+详细注释：
+*inj1_pin_port |= (inj1_pin_mask);
+
+这里 inj1_pin_port 是一个指向控制喷油器1引脚的寄存器的指针（通常是某个GPIO端口的寄存器地址）。
+
+inj1_pin_mask 是一个掩码，表示喷油器1对应的具体引脚位置。
+
+这行代码的作用是将该引脚置为高电平（逻辑1），启动喷油器1。
+
+BIT_SET(currentStatus.status1, BIT_STATUS1_INJ1);
+
+这是设置状态标志的宏，通常实现是将 currentStatus.status1 这个状态字的某个位（由 BIT_STATUS1_INJ1 指定）置为1。
+
+表示喷油器1当前处于打开状态。
+**/
 #define openInjector1_DIRECT()  { *inj1_pin_port |= (inj1_pin_mask); BIT_SET(currentStatus.status1, BIT_STATUS1_INJ1); }
 #define closeInjector1_DIRECT() { *inj1_pin_port &= ~(inj1_pin_mask);  BIT_CLEAR(currentStatus.status1, BIT_STATUS1_INJ1); }
 #define openInjector2_DIRECT()  { *inj2_pin_port |= (inj2_pin_mask); BIT_SET(currentStatus.status1, BIT_STATUS1_INJ2); }

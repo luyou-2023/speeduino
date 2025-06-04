@@ -66,6 +66,8 @@ static inline void applyOverDwellCheck(IgnitionSchedule &schedule, uint32_t targ
   }
 }
 
+//不同时间的定时器
+
 // 定时器2溢出中断向量，定时器溢出时调用。
 // 每大约1毫秒执行一次。
 #if defined(CORE_AVR) // AVR芯片使用ISR
@@ -216,13 +218,18 @@ void oneMSInterval(void) // 大多数ARM芯片只需调用此函数
   {
     loop100ms = 0; // 重置计数器
     BIT_SET(TIMER_mask, BIT_TIMER_10HZ);
-
+    /**
+          currentStatus.longRPM = getRPM(); //Long RPM is included here
+          currentStatus.RPM = currentStatus.longRPM;
+          currentStatus.RPMdiv100 = div100(currentStatus.RPM);
+    **/
+    //计算过去100ms内发动机转速变化的速率（转速变化量 * 10，即每秒转速变化）
     currentStatus.rpmDOT = (currentStatus.RPM - lastRPM_100ms) * 10; // 这是引擎在上一个循环中加速或减速的每秒转速
     lastRPM_100ms = currentStatus.RPM; // 记录当前的转速以便下次计算
 
     if ( BIT_CHECK(currentStatus.engine, BIT_ENGINE_RUN) ) { runSecsX10++; }
     else { runSecsX10 = 0; }
-
+    // beginInjectorPriming()执行喷油器的预喷脉冲
     if ( (currentStatus.injPrimed == false) && (seclx10 == configPage2.primingDelay) && (currentStatus.RPM == 0) ) { beginInjectorPriming(); currentStatus.injPrimed = true; }
     seclx10++;
   }

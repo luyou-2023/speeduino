@@ -261,7 +261,7 @@ struct FuelSchedule {
 void _setFuelScheduleRunning(FuelSchedule &schedule, unsigned long timeout, unsigned long duration);
 void _setFuelScheduleNext(FuelSchedule &schedule, unsigned long timeout, unsigned long duration);
 
-//管理燃油调度
+//管理燃油调度 发动机控制器 根据点火节拍或转速，计算喷油时间点，调用 setFuelSchedule 安排喷油
 inline __attribute__((always_inline)) void setFuelSchedule(FuelSchedule &schedule, unsigned long timeout, unsigned long duration) 
 {
   if(schedule.Status != RUNNING) 

@@ -232,6 +232,7 @@ void _setFuelScheduleRunning(FuelSchedule &schedule, unsigned long timeout, unsi
   noInterrupts();
   schedule.startCompare = schedule.counter + timeout_timer_compare;
   schedule.endCompare = schedule.startCompare + uS_TO_TIMER_COMPARE(duration);
+  //告诉定时器什么时候触发开始喷油的中断 FuelSchedule fuelSchedule1(FUEL1_COUNTER, FUEL1_COMPARE, FUEL1_TIMER_DISABLE, FUEL1_TIMER_ENABLE);
   SET_COMPARE(schedule.compare, schedule.startCompare); //Use the B compare unit of timer 3
   schedule.Status = PENDING; //Turn this schedule on
   interrupts();
@@ -315,9 +316,11 @@ void refreshIgnitionSchedule1(unsigned long timeToEnd)
   }
 }
 
-/** Perform the injector priming pulses.
- * Set these to run at an arbitrary time in the future (100us).
- * The prime pulse value is in ms*10, so need to multiple by 100 to get to uS
+/**
+ * 执行喷油器的预喷脉冲（priming pulses）。
+ * 这些脉冲被安排在未来的任意时间执行（例如 100 微秒后）。
+ * 预喷脉冲的时间单位是毫秒的十分之一（ms*10），
+ * 因此需要乘以 100 转换为微秒（uS）单位。
  */
 extern void beginInjectorPriming(void)
 {
@@ -371,7 +374,7 @@ static inline __attribute__((always_inline)) void fuelScheduleISR(FuelSchedule &
               fuelSchedule4.pStartFunction = openInjector4;
               fuelSchedule4.pEndFunction = closeInjector4;
     */
-    // 调用调度的开始函数，启动该调度
+    // 调用调度的开始函数，启动该调度 fuelSchedule1.pStartFunction = openInjector1;
     schedule.pStartFunction();
 
     // 将调度状态更改为 RUNNING（进行中），表示开始回调已执行，但结束回调尚未执行
@@ -384,7 +387,7 @@ static inline __attribute__((always_inline)) void fuelScheduleISR(FuelSchedule &
   // 如果调度状态是 RUNNING（进行中），表示已经启动，检查是否需要结束该调度
   else if (schedule.Status == RUNNING)
   {
-      // 调用调度的结束函数
+      // 调用调度的结束函数 fuelSchedule1.pEndFunction = closeInjector1;
       schedule.pEndFunction();
 
       // 将调度状态更改为 OFF（关闭），表示调度已完成
@@ -423,6 +426,69 @@ static inline __attribute__((always_inline)) void fuelScheduleISR(FuelSchedule &
 * The status of schedule is managed here based on startCallback /endCallback function called:
 * - startCallback - change scheduler into RUNNING state
 * - endCallback - change scheduler into OFF state (or PENDING if schedule.hasNextSchedule is set)
+ISR(TIMER3_COMPA_vect) 是 AVR 微控制器上，定时器3的比较匹配A中断，它会在定时器计数器的值与比较寄存器A（OCR3A）匹配时触发。
+
+触发条件总结：
+定时器3（Timer3）正在运行，且计数从0开始计数（可能是向上计数或者双向计数，具体取决于定时器模式）。
+
+当定时器计数器（TCNT3）的值等于比较寄存器A（OCR3A）的值时，会触发该中断。
+
+硬件自动产生中断，CPU暂停当前任务，执行 ISR(TIMER3_COMPA_vect) 里面的代码。
+
+该中断一般用来定时执行一些周期性或特定时间点的任务。
+定时器中断触发喷油的方式，如何保证和发动机冲程同步？
+定时器中断触发的喷油其实是“基于曲轴位置和转速来动态调整的”。
+
+定时器的比较寄存器（OCR3A）值不是固定的，而是根据发动机当前曲轴转速和转角动态计算的。
+
+通过传感器（曲轴位置传感器、凸轮轴传感器）实时采样发动机角度，计算出当前应该喷油的时间点。
+
+把这个时间点换算成定时器的比较值，写入OCR3A，定时器计数到这个值时触发中断。
+
+喷油时间点和持续时间是调度程序fuelSchedule动态计算和设置的
+
+比如_setFuelScheduleRunning()函数会设置喷油开始和持续的时间，保证喷油在正确的冲程阶段开始并结束。
+
+中断服务程序fuelScheduleISR根据当前喷油状态（PENDING、RUNNING、OFF）来开启和关闭喷油。
+
+发动机的转速和位置是实时反馈调节的
+
+系统不断测量曲轴转速，调整喷油脉冲宽度（喷油时间）和启动时间点。
+
+即使转速变化，喷油时间会相应调整，保证和燃烧冲程匹配。
+SET_COMPARE(schedule.compare, schedule.startCompare) 和 ISR(TIMER3_COMPA_vect) 之间的联系。
+
+1. SET_COMPARE(schedule.compare, schedule.startCompare); 是做什么的？
+SET_COMPARE 这个宏（或函数）本质上是给定时器的比较寄存器写一个值，也就是告诉硬件：
+
+当定时器计数器（counter）数到 schedule.startCompare 这个值时，触发对应的中断。
+
+这里的 schedule.compare 通常是一个标识，表示具体的定时器比较寄存器，比如 Timer3 的比较单元 A（OCR3A）等。
+
+schedule.startCompare 是刚才计算出的“喷油开始时间”对应的定时器计数值。
+
+2. ISR(TIMER3_COMPA_vect) 是什么？
+TIMER3_COMPA_vect 是 AVR 微控制器中定时器3比较匹配A中断向量的名字。
+
+也就是说，当硬件定时器3的计数器计数到比较寄存器A（OCR3A）存的值时，就会触发这个中断服务程序（ISR）。
+
+这个 ISR 里会调用 fuelScheduleISR(fuelSchedule1)，执行喷油的开关逻辑。
+
+3. 它们之间的关系
+你通过 SET_COMPARE(schedule.compare, schedule.startCompare) 把“喷油启动时间”写入了定时器3的比较寄存器A（OCR3A）；
+
+当定时器计数器数到 startCompare，硬件自动触发 TIMER3_COMPA_vect 中断；
+
+CPU 跳转执行 ISR(TIMER3_COMPA_vect)，调用 fuelScheduleISR(fuelSchedule1)，触发喷油的开关操作；
+
+fuelScheduleISR 里面会根据当前状态调用喷油开始或结束函数，并重新设置下一个比较值，确保喷油能按预期开启和关闭。
+
+总结
+动作	角色	结果
+SET_COMPARE(schedule.compare, schedule.startCompare)	设置定时器比较寄存器（如OCR3A）	硬件知道什么时候触发中断
+硬件定时器计数器数到比较寄存器值	定时器硬件	触发定时器比较中断
+触发中断	CPU跳转执行ISR	调用喷油调度处理函数，实现喷油控制
+
 */
 // Timer3A (燃油调度1) 比较向量
 #if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__) || defined(__AVR_ATmega2561__) // AVR芯片使用ISR
@@ -562,14 +628,22 @@ static inline __attribute__((always_inline)) void ignitionScheduleISR(IgnitionSc
   }
 }
 
-#if defined(CORE_AVR) //AVR chips use the ISR for this
-ISR(TIMER5_COMPA_vect) //cppcheck-suppress misra-c2012-8.2
+// 如果目标平台是 AVR（如 ATmega 系列）
+#if defined(CORE_AVR)
+
+// 定义定时器 5 的比较匹配 A 通道中断服务程序（ISR）
+// 用于控制第一个点火通道的定时输出
+ISR(TIMER5_COMPA_vect) // cppcheck-suppress 是工具分析抑制语句，可忽略
 #else
-void ignitionSchedule1Interrupt(void) //Most ARM chips can simply call a function
+
+// 否则，如果是 ARM（如 Teensy、STM32），ARM 平台支持将中断回调函数直接设置为普通函数
+// 所以这里只定义一个普通函数用于作为中断处理函数 Timer2.attachInterrupt(1, ignitionSchedule1Interrupt);
+void ignitionSchedule1Interrupt(void)
 #endif
-  {
-    ignitionScheduleISR(ignitionSchedule1);
-  }
+{
+  // 调用通用的点火调度 ISR，传入第一个点火调度结构
+  ignitionScheduleISR(ignitionSchedule1);
+}
 
 #if IGN_CHANNELS >= 2
 #if defined(CORE_AVR) //AVR chips use the ISR for this

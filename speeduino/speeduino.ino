@@ -646,7 +646,7 @@ void loop(void)
       //Check for any new or in-progress requests from serial.
       if (Serial.available()>0 || serialRecieveInProgress())
       {
-        // 串口通信处理
+        // 串口通信处理 startToothLogger attachInterrupt 启用 loggerPrimaryISR
         serialReceive();
       }
       
@@ -1419,7 +1419,7 @@ void loop(void)
       //We only need to set the schedule if we're BEFORE the open angle
       //This may potentially be called a number of times as we get closer and closer to the opening time
 
-      //Determine the current crank angle
+      //Determine the current crank angle 用于获取当前曲轴的位置角度，通常是一个 0~360° 范围内的值，表示曲轴转动到的位置。  attachInterrupt( digitalPinToInterrupt(pinTrigger), loggerPrimaryISR, CHANGE );
       int crankAngle = injectorLimits(getCrankAngle());
 
       // if(Serial && false)
@@ -1581,6 +1581,7 @@ void loop(void)
 #if INJ_CHANNELS >= 1
       if( (maxInjOutputs >= 1) && (currentStatus.PW1 >= inj_opentime_uS) && (BIT_CHECK(fuelChannelsOn, INJ1_CMD_BIT)) )
       {
+        // 喷油控制
         uint32_t timeOut = calculateInjectorTimeout(fuelSchedule1, channel1InjDegrees, injector1StartAngle, crankAngle);
         if (timeOut>0U)
         {
@@ -1741,6 +1742,7 @@ void loop(void)
         uint32_t timeOut = calculateIgnitionTimeout(ignitionSchedule1, ignition1StartAngle, channel1IgnDegrees, crankAngle);
         if ( (timeOut > 0U) && (BIT_CHECK(ignitionChannelsOn, IGN1_CMD_BIT)) )
         {
+          // 点火控制
           setIgnitionSchedule(ignitionSchedule1, timeOut,
                     currentStatus.dwell + fixedCrankingOverride);
         }
